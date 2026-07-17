@@ -1,0 +1,113 @@
+[
+  {
+    "SchemaVersion": "2.0",
+    "AccountId": "123456789012",
+    "Region": "us-east-1",
+    "Partition": "aws",
+    "Id": "aegis-finding-cred-exfil-0001",
+    "Arn": "arn:aws:guardduty:us-east-1:123456789012:detector/abc/finding/aegis-finding-cred-exfil-0001",
+    "Type": "UnauthorizedAccess:IAMUser/InstanceCredentialExfiltration.OutsideAWS",
+    "Severity": 8.0,
+    "Title": "Credentials for IAM role svc-backup used from an external IP address.",
+    "Description": "EC2 instance role credentials for svc-backup were used from a remote IP 185.220.101.7 (a known Tor exit node), followed by 412 sequential S3 GetObject calls after a ListBuckets call. This pattern is consistent with credential theft and data exfiltration.",
+    "CreatedAt": "2026-07-17T12:00:00.000Z",
+    "UpdatedAt": "2026-07-17T12:03:00.000Z",
+    "Resource": {
+      "ResourceType": "AccessKey",
+      "AccessKeyDetails": {
+        "AccessKeyId": "ASIAEXAMPLECREDEXFIL",
+        "UserName": "svc-backup",
+        "UserType": "AssumedRole"
+      }
+    },
+    "Service": {
+      "ServiceName": "guardduty",
+      "ResourceRole": "TARGET",
+      "Count": 412,
+      "EventFirstSeen": "2026-07-17T11:58:00.000Z",
+      "EventLastSeen": "2026-07-17T12:02:30.000Z",
+      "Archived": false,
+      "Action": {
+        "ActionType": "AWS_API_CALL",
+        "AwsApiCallAction": {
+          "Api": "GetObject",
+          "CallerType": "Remote IP",
+          "RemoteIpDetails": {
+            "IpAddressV4": "185.220.101.7",
+            "Organization": { "Org": "Tor Exit Node" },
+            "Country": { "CountryName": "Netherlands" }
+          }
+        }
+      }
+    }
+  },
+  {
+    "SchemaVersion": "2.0",
+    "AccountId": "123456789012",
+    "Region": "us-east-1",
+    "Partition": "aws",
+    "Id": "aegis-finding-cryptomine-0002",
+    "Arn": "arn:aws:guardduty:us-east-1:123456789012:detector/abc/finding/aegis-finding-cryptomine-0002",
+    "Type": "CryptoCurrency:EC2/BitcoinTool.B!DNS",
+    "Severity": 7.5,
+    "Title": "EC2 instance i-0a1b2c3d4e5f60789 is querying a domain name associated with cryptocurrency mining.",
+    "Description": "EC2 instance i-0a1b2c3d4e5f60789 is resolving known XMRig mining pool domains and sustaining 98% CPU with outbound traffic to a stratum port. Consistent with cryptojacking following an instance compromise.",
+    "CreatedAt": "2026-07-17T12:05:00.000Z",
+    "UpdatedAt": "2026-07-17T12:06:00.000Z",
+    "Resource": {
+      "ResourceType": "Instance",
+      "InstanceDetails": {
+        "InstanceId": "i-0a1b2c3d4e5f60789",
+        "NetworkInterfaces": [
+          { "PrivateIpAddress": "10.0.9.3", "SubnetId": "subnet-0abc123", "VpcId": "vpc-0def456" }
+        ]
+      }
+    },
+    "Service": {
+      "ServiceName": "guardduty",
+      "ResourceRole": "TARGET",
+      "Count": 37,
+      "EventFirstSeen": "2026-07-17T12:04:00.000Z",
+      "EventLastSeen": "2026-07-17T12:05:45.000Z",
+      "Archived": false,
+      "Action": { "ActionType": "DNS_REQUEST" }
+    }
+  },
+  {
+    "SchemaVersion": "2.0",
+    "AccountId": "123456789012",
+    "Region": "us-east-1",
+    "Partition": "aws",
+    "Id": "aegis-finding-recon-0003",
+    "Arn": "arn:aws:guardduty:us-east-1:123456789012:detector/abc/finding/aegis-finding-recon-0003",
+    "Type": "Recon:EC2/PortProbeUnprotectedPort",
+    "Severity": 2.0,
+    "Title": "Unprotected port on EC2 instance i-0999888777666555 is being probed.",
+    "Description": "An unprotected port on EC2 instance i-0999888777666555 is receiving low-volume probes from the internet. Low severity; typically background internet scanning.",
+    "CreatedAt": "2026-07-17T12:07:00.000Z",
+    "UpdatedAt": "2026-07-17T12:07:00.000Z",
+    "Resource": {
+      "ResourceType": "Instance",
+      "InstanceDetails": {
+        "InstanceId": "i-0999888777666555",
+        "NetworkInterfaces": [
+          { "PrivateIpAddress": "10.0.4.12", "SubnetId": "subnet-0abc123", "VpcId": "vpc-0def456" }
+        ]
+      }
+    },
+    "Service": {
+      "ServiceName": "guardduty",
+      "ResourceRole": "TARGET",
+      "Count": 3,
+      "EventFirstSeen": "2026-07-17T12:06:30.000Z",
+      "EventLastSeen": "2026-07-17T12:06:55.000Z",
+      "Archived": false,
+      "Action": {
+        "ActionType": "NETWORK_CONNECTION",
+        "AwsApiCallAction": {
+          "RemoteIpDetails": { "IpAddressV4": "45.155.205.99", "Country": { "CountryName": "Unknown" } }
+        }
+      }
+    }
+  }
+]
