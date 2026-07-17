@@ -1,0 +1,16 @@
+{
+  "Version": "2012-10-17",
+  "Id": "AegisSqsIngestionReadOnly",
+  "Statement": [
+    {
+      "Sid": "ReceiveAndDeleteFindingsQueueOnly",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": "arn:aws:sqs:REGION:ACCOUNT_ID:QUEUE_NAME"
+    }
+  ]
+}
