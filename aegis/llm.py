@@ -32,7 +32,11 @@ except ImportError:
 
 T = TypeVar("T", bound=BaseModel)
 
-MODEL = "gemini-3.5-flash"
+# gemini-3.1-flash-lite: GA, fast (~2s vs 34-85s for 3.5-flash with thinking on),
+# cheap, and well-suited to triage (a bounded classification/reasoning task).
+# Fast triage matters for a real-time pipeline. The free-tier daily quota is
+# per-model, so each model has its own bucket — override via AEGIS_TRIAGE_MODEL.
+MODEL = os.getenv("AEGIS_TRIAGE_MODEL", "gemini-3.1-flash-lite")
 MAX_RETRIES = 5          # for 429 / 5xx — routine and expected on the free tier
 MAX_TIMEOUT_RETRIES = 1  # for a full-duration hang — a much stronger stall signal;
                           # retrying it 5x at full duration each would block the
