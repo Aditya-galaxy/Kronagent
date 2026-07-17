@@ -1,0 +1,77 @@
+{
+  "Version": "2012-10-17",
+  "Id": "AegisContainmentLeastPrivilege",
+  "Statement": [
+    {
+      "Sid": "DisableAndReenableAccessKeys",
+      "Effect": "Allow",
+      "Action": "iam:UpdateAccessKey",
+      "Resource": "arn:aws:iam::ACCOUNT_ID:user/*"
+    },
+    {
+      "Sid": "QuarantineDenyAllInlinePolicyOnly",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PutUserPolicy",
+        "iam:DeleteUserPolicy"
+      ],
+      "Resource": "arn:aws:iam::ACCOUNT_ID:user/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PolicyName": "aegis-quarantine-deny-all"
+        }
+      }
+    },
+    {
+      "Sid": "RevokeRoleSessionsInlinePolicyOnly",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::ACCOUNT_ID:role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PolicyName": "aegis-revoke-sessions"
+        }
+      }
+    },
+    {
+      "Sid": "ReadInstanceStateForRollbackCapture",
+      "Effect": "Allow",
+      "Action": "ec2:DescribeInstances",
+      "Resource": "*"
+    },
+    {
+      "Sid": "IsolateInstanceIntoQuarantineSG",
+      "Effect": "Allow",
+      "Action": "ec2:ModifyInstanceAttribute",
+      "Resource": "arn:aws:ec2:REGION:ACCOUNT_ID:instance/*",
+      "Condition": {
+        "StringEquals": {
+          "ec2:Region": "REGION"
+        }
+      }
+    },
+    {
+      "Sid": "BlockIpAtQuarantineNacl",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateNetworkAclEntry",
+        "ec2:DeleteNetworkAclEntry"
+      ],
+      "Resource": "arn:aws:ec2:REGION:ACCOUNT_ID:network-acl/QUARANTINE_NACL_ID"
+    },
+    {
+      "Sid": "TerminateInstancesInRegion",
+      "Effect": "Allow",
+      "Action": "ec2:TerminateInstances",
+      "Resource": "arn:aws:ec2:REGION:ACCOUNT_ID:instance/*",
+      "Condition": {
+        "StringEquals": {
+          "ec2:Region": "REGION"
+        }
+      }
+    }
+  ]
+}
