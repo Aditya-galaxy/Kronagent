@@ -62,7 +62,47 @@ aws iam create-policy \
 | `BlockIpAtQuarantineNacl` | `ec2:CreateNetworkAclEntry`, `ec2:DeleteNetworkAclEntry` | `BLOCK_IP` (+ rollback) | Pinned by **ARN** to the single quarantine NACL. Aegis cannot modify any other NACL. |
 | `TerminateInstancesInRegion` | `ec2:TerminateInstances` | `TERMINATE_INSTANCE` | Irreversible, destructive, always human-approved. **Consider deleting this statement** until you actually need the terminate class — least privilege means granting it only when used. |
 
-## 5. Honest limitations
+## 5. Live ingestion: GuardDuty → EventBridge → SQS
+
+Aegis reads live findings by long-polling an SQS queue. Set `AEGIS_SQS_QUEUE_URL`
+and `run_slice.py` switches from file replay to the live source automatically;
+unset it to fall back to replaying `samples/`.
+
+```
+AEGIS_SQS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789012/aegis-findings
+AWS_REGION=us-east-1
+```
+
+**Wiring (provision once):**
+
+1. **SQS queue** `aegis-findings` with:
+   - **visibility timeout ≥ 60s** — must exceed the max per-finding processing
+     time (LLM triage + containment). A message is invisible while Aegis
+     processes it and is deleted only after it's fully handled and audited
+     (ack-after-process); too short a timeout causes double-processing.
+   - a **redrive policy → dead-letter queue** `aegis-findings-dlq` with
+     `maxReceiveCount` ~5. Messages that don't parse as GuardDuty findings are
+     **left in place, not deleted**, so SQS moves them to the DLQ instead of the
+     pipeline losing them. Without a DLQ, a poison message redelivers forever.
+2. **EventBridge rule** matching GuardDuty findings, targeting the queue:
+   ```json
+   { "source": ["aws.guardduty"], "detail-type": ["GuardDuty Finding"] }
+   ```
+   Add an SQS queue policy allowing `events.amazonaws.com` to `sqs:SendMessage`
+   to the queue ARN. (A GuardDuty → EventBridge → **SNS** → SQS topology also
+   works — the consumer unwraps the SNS `Notification` envelope automatically.)
+3. **Attach `aegis-sqs-ingestion-policy.json`** to the Aegis principal — a
+   read-only grant (`ReceiveMessage`/`DeleteMessage`/`GetQueueAttributes`) scoped
+   to the one queue ARN. This is separate from the containment policy: ingestion
+   is read-only and touches only the queue; containment is write and touches AWS
+   infrastructure. Keeping them separate keeps each grant minimal.
+
+**Delivery semantics:** at-least-once. On a crash mid-processing the message
+reappears after the visibility timeout and is re-processed — a finding is never
+silently lost. Re-processing is safe because containment actions are idempotent
+and approval-gated.
+
+## 6. Honest limitations
 
 - **Three actions can't be fully resource-conditioned by AWS** (`iam:UpdateAccessKey`,
   `ec2:DescribeInstances`, and the target-SG on `ec2:ModifyInstanceAttribute`).

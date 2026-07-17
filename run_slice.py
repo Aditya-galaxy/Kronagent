@@ -29,15 +29,16 @@ from __future__ import annotations
 import asyncio
 import sys
 
+import os
+
 from aegis.approvals import ApprovalStore
 from aegis.audit import AuditLog
 from aegis.config import Settings
 from aegis.containment import ContainmentExecutor
-from aegis.ingestion import FileReplaySource
+from aegis.ingestion import FileReplaySource, QueuedFinding, SqsFindingSource
 from aegis.llm import GeminiTriageClient, LLMUnavailableError
 from aegis.orchestrator import Orchestrator, _log
 from aegis.policy import PolicyEngine
-from aegis.schemas import GuardDutyFinding
 from aegis.triage import TriageEngine
 
 
@@ -68,17 +69,40 @@ async def main(findings_path: str) -> int:
     _log("BOOT", f"auto-execute allowlist: {sorted(settings.auto_execute_allowlist) or 'EMPTY (all actions need approval)'}")
     _log("BOOT", f"triage: {llm_status}")
 
-    queue: "asyncio.Queue[GuardDutyFinding]" = asyncio.Queue(maxsize=256)
+    queue: "asyncio.Queue[QueuedFinding]" = asyncio.Queue(maxsize=256)
     stop = asyncio.Event()
     ingestion_done = asyncio.Event()
 
-    source = FileReplaySource(findings_path, interval=0.5)
+    # Source selection: SQS if AEGIS_SQS_QUEUE_URL is set (live GuardDuty ->
+    # EventBridge -> SQS), else replay findings from disk. The SQS source runs
+    # until interrupted (Ctrl-C); the file source finishes on its own.
+    sqs_url = os.getenv("AEGIS_SQS_QUEUE_URL")
+    if sqs_url:
+        _log("BOOT", f"ingestion: SQS long-poll {sqs_url} (region {settings.aws_region})")
+        source = SqsFindingSource(sqs_url, region=settings.aws_region, wait_seconds=20)
+        live = True
+    else:
+        _log("BOOT", f"ingestion: file replay {findings_path}")
+        source = FileReplaySource(findings_path, interval=0.5)
+        live = False
+
     producer = asyncio.create_task(source.stream(queue, stop))
     consumer = asyncio.create_task(orchestrator.run(queue, ingestion_done))
 
-    await producer            # replay source finishes on its own
-    ingestion_done.set()      # only now may the consumer exit on an empty queue
-    await consumer
+    try:
+        if live:
+            # Live mode: run until Ctrl-C, then drain gracefully.
+            await producer
+        else:
+            await producer        # replay source finishes on its own
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        _log("BOOT", "shutdown requested — draining in-flight findings")
+    finally:
+        stop.set()
+        if not producer.done():
+            await producer
+        ingestion_done.set()      # only now may the consumer exit on an empty queue
+        await consumer
 
     ok, broken = AuditLog.verify(settings.audit_log_path)
     _log("AUDIT", f"chain verification: {'OK' if ok else f'BROKEN at line {broken}'} "
@@ -99,4 +123,9 @@ async def main(findings_path: str) -> int:
 
 if __name__ == "__main__":
     path = sys.argv[1] if len(sys.argv) > 1 else "samples/guardduty_findings.json"
-    raise SystemExit(asyncio.run(main(path)))
+    try:
+        raise SystemExit(asyncio.run(main(path)))
+    except KeyboardInterrupt:
+        # Ctrl-C during startup/teardown outside the drained window.
+        _log("BOOT", "interrupted.")
+        raise SystemExit(130)

@@ -16,6 +16,7 @@ from .approvals import ApprovalRequest, ApprovalStore
 from .audit import AuditLog
 from .config import Settings
 from .containment import ContainmentExecutor
+from .ingestion import QueuedFinding
 from .policy import PolicyEngine
 from .schemas import AuditRecord, GuardDutyFinding
 from .triage import TriageEngine
@@ -128,12 +129,13 @@ class Orchestrator:
         _log("INCIDENT", f"{finding.Id}: --- response complete ---")
         self._processed += 1
 
-    async def run(self, queue: "asyncio.Queue[GuardDutyFinding]", ingestion_done: asyncio.Event) -> None:
+    async def run(self, queue: "asyncio.Queue[QueuedFinding]", ingestion_done: asyncio.Event) -> None:
         while not (ingestion_done.is_set() and queue.empty()):
             try:
-                finding = await asyncio.wait_for(queue.get(), timeout=1.0)
+                item = await asyncio.wait_for(queue.get(), timeout=1.0)
             except asyncio.TimeoutError:
                 continue
+            finding = item.finding
             try:
                 await self._handle(finding)
             except Exception as exc:  # noqa: BLE001 - one bad finding must not stop the pipeline
@@ -142,4 +144,12 @@ class Orchestrator:
                     finding_id=finding.Id, stage="error", payload={"error": str(exc)}
                 ))
             finally:
+                # Retire the message from the upstream source only after it has
+                # been fully processed and audited (at-least-once). A failed ack
+                # is logged, not raised — the message will simply redeliver.
+                try:
+                    await item.ack()
+                except Exception as exc:  # noqa: BLE001
+                    _log("ERROR", f"{finding.Id}: ack failed (will redeliver) — "
+                                  f"{type(exc).__name__}: {exc}")
                 queue.task_done()
