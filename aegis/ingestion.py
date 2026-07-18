@@ -37,7 +37,12 @@ from typing import Awaitable, Callable, Optional
 
 from pydantic import ValidationError
 
-from .schemas import GuardDutyFinding
+from .model import Finding
+
+# A normalizer turns one native event dict into a provider-neutral Finding.
+# Provided by the caller (from aegis.providers.NORMALIZERS), so ingestion is
+# transport-only and knows nothing about any provider's wire schema.
+Normalizer = Callable[[dict], Finding]
 
 
 @dataclass
@@ -46,7 +51,7 @@ class QueuedFinding:
     the upstream source. `ack()` is called by the orchestrator exactly once,
     after processing + auditing completes."""
 
-    finding: GuardDutyFinding
+    finding: Finding
     _ack: Callable[[], Awaitable[None]]
 
     async def ack(self) -> None:
@@ -58,22 +63,23 @@ async def _noop_ack() -> None:
 
 
 class FileReplaySource:
-    def __init__(self, path: str, *, interval: float = 1.0) -> None:
+    def __init__(self, path: str, normalizer: Normalizer, *, interval: float = 1.0) -> None:
         self._path = path
+        self._normalizer = normalizer
         self._interval = interval
 
     async def stream(self, queue: "asyncio.Queue[QueuedFinding]", stop: asyncio.Event) -> None:
         with open(self._path, "r", encoding="utf-8") as fh:
             raw = json.load(fh)
-        findings = raw if isinstance(raw, list) else [raw]
+        events = raw if isinstance(raw, list) else [raw]
 
-        for item in findings:
+        for item in events:
             if stop.is_set():
                 break
             try:
-                finding = GuardDutyFinding.model_validate(item)
-            except ValidationError as exc:
-                print(f"[INGEST] skipping malformed finding: {exc.errors()[:1]}", flush=True)
+                finding = self._normalizer(item)
+            except (ValidationError, KeyError, ValueError) as exc:
+                print(f"[INGEST] skipping malformed event: {exc}", flush=True)
                 continue
             # File replay has nothing to retire upstream — ack is a no-op.
             await queue.put(QueuedFinding(finding=finding, _ack=_noop_ack))
@@ -95,8 +101,10 @@ class SqsFindingSource:
     _RECEIVE_BASE_BACKOFF = 1.0
     _RECEIVE_MAX_BACKOFF = 30.0
 
-    def __init__(self, queue_url: str, *, region: str, wait_seconds: int = 20) -> None:
+    def __init__(self, queue_url: str, normalizer: Normalizer, *, region: str,
+                 wait_seconds: int = 20) -> None:
         self._queue_url = queue_url
+        self._normalizer = normalizer
         self._region = region
         self._wait_seconds = wait_seconds
         self._sqs = None
@@ -130,7 +138,7 @@ class SqsFindingSource:
 
             for msg in resp.get("Messages", []):
                 receipt = msg["ReceiptHandle"]
-                finding = self._unwrap(msg.get("Body", ""))
+                finding = self._unwrap(msg.get("Body", ""), self._normalizer)
 
                 if finding is None:
                     # Poison message: leave it for DLQ redrive rather than delete
@@ -163,14 +171,15 @@ class SqsFindingSource:
             pass
 
     @staticmethod
-    def _unwrap(body: str) -> Optional[GuardDutyFinding]:
-        """Unwrap a GuardDuty finding from an SQS message body.
+    def _unwrap(body: str, normalizer: Normalizer) -> Optional[Finding]:
+        """Unwrap the native event from an SQS message body and normalize it.
 
         Handles both delivery topologies:
-          * EventBridge -> SQS:        {"detail-type": ..., "detail": <finding>}
+          * EventBridge -> SQS:        {"detail-type": ..., "detail": <event>}
           * EventBridge -> SNS -> SQS: {"Type": "Notification",
                                         "Message": "<stringified EventBridge JSON>"}
-        and a bare finding (defensive).
+        and a bare event (defensive). The provider's normalizer does the final
+        native-event -> Finding conversion.
         """
         try:
             envelope = json.loads(body)
@@ -187,11 +196,11 @@ class SqsFindingSource:
                 print(f"[INGEST] SNS Message is not JSON: {exc}", flush=True)
                 return None
 
-        # EventBridge wraps the finding under "detail"; otherwise treat as bare.
+        # EventBridge wraps the event under "detail"; otherwise treat as bare.
         detail = envelope.get("detail", envelope) if isinstance(envelope, dict) else envelope
 
         try:
-            return GuardDutyFinding.model_validate(detail)
-        except ValidationError as exc:
-            print(f"[INGEST] payload is not a GuardDuty finding: {exc.errors()[:1]}", flush=True)
+            return normalizer(detail)
+        except (ValidationError, KeyError, ValueError) as exc:
+            print(f"[INGEST] payload did not normalize to a Finding: {exc}", flush=True)
             return None

@@ -1,11 +1,11 @@
 """
-Typed contracts for the pipeline.
+Typed contracts for the pipeline — provider-neutral internal types.
 
-`GuardDutyFinding` models the subset of the real Amazon GuardDuty finding
-schema the platform reasons over (extra fields are tolerated, so live findings
-parse without loss). Everything downstream — triage verdict, proposed
-containment actions, policy decisions, audit records — is a strict internal
-model.
+Provider wire schemas (GuardDuty, Kubernetes audit, ...) live in their own
+provider modules (aegis/providers/*.py) and normalize into the neutral
+`Finding` (aegis/model.py). This module holds only what's shared across every
+provider: the action taxonomy, triage verdict, proposed actions, policy
+decisions, action outcomes, and audit records.
 """
 
 from __future__ import annotations
@@ -22,112 +22,16 @@ def utcnow_iso() -> str:
 
 
 # --------------------------------------------------------------------------- #
-# GuardDuty finding (real-schema subset, tolerant of extra fields)
-# --------------------------------------------------------------------------- #
-
-# NOTE: nested class names are deliberately DIFFERENT from the JSON field names
-# they're used for (e.g. field `RemoteIpDetails` has type `RemoteIp`). Pydantic
-# resolves a field's type annotation in a namespace where the field name shadows
-# a same-named class, silently degrading the type to None — so field name and
-# type name must never match.
-
-class RemoteIp(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    IpAddressV4: Optional[str] = None
-    Organization: Optional[dict[str, Any]] = None
-    Country: Optional[dict[str, Any]] = None
-
-
-class ApiCallAction(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    Api: Optional[str] = None
-    CallerType: Optional[str] = None
-    RemoteIpDetails: Optional[RemoteIp] = None
-
-
-class FindingAction(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    ActionType: Optional[str] = None
-    AwsApiCallAction: Optional[ApiCallAction] = None
-
-
-class ServiceInfo(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    Action: Optional[FindingAction] = None
-    Count: Optional[int] = None
-    ResourceRole: Optional[str] = None
-    EventFirstSeen: Optional[str] = None
-    EventLastSeen: Optional[str] = None
-    Archived: Optional[bool] = None
-
-
-class AccessKey(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    AccessKeyId: Optional[str] = None
-    UserName: Optional[str] = None
-    UserType: Optional[str] = None
-
-
-class InstanceInfo(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    InstanceId: Optional[str] = None
-    NetworkInterfaces: Optional[list[dict[str, Any]]] = None
-
-
-class ResourceBlock(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    ResourceType: Optional[str] = None
-    AccessKeyDetails: Optional[AccessKey] = None
-    InstanceDetails: Optional[InstanceInfo] = None
-    S3BucketDetails: Optional[list[dict[str, Any]]] = None
-
-
-class GuardDutyFinding(BaseModel):
-    """Subset of the GuardDuty finding schema, tolerant of unmodeled fields."""
-
-    model_config = ConfigDict(extra="allow")
-
-    Id: str
-    AccountId: Optional[str] = None
-    Region: Optional[str] = None
-    Type: str
-    Severity: float  # GuardDuty scale (0.1–8.9+); higher is worse
-    Title: Optional[str] = None
-    Description: Optional[str] = None
-    CreatedAt: Optional[str] = None
-    UpdatedAt: Optional[str] = None
-    Resource: ResourceBlock = Field(default_factory=ResourceBlock)
-    Service: ServiceInfo = Field(default_factory=ServiceInfo)
-
-    # --- Convenience accessors used by triage/containment ---
-
-    @property
-    def severity_band(self) -> Literal["low", "medium", "high", "critical"]:
-        s = self.Severity
-        if s >= 9.0:
-            return "critical"
-        if s >= 7.0:
-            return "high"
-        if s >= 4.0:
-            return "medium"
-        return "low"
-
-    @property
-    def remote_ip(self) -> Optional[str]:
-        act = self.Service.Action
-        if act and act.AwsApiCallAction and act.AwsApiCallAction.RemoteIpDetails:
-            return act.AwsApiCallAction.RemoteIpDetails.IpAddressV4
-        return None
-
-
-# --------------------------------------------------------------------------- #
 # Internal pipeline types
 # --------------------------------------------------------------------------- #
 
 class ActionClass(str, Enum):
-    """Every containment capability the platform has, as a stable identifier.
-    Values double as the keys in the auto-execute allowlist."""
+    """Every containment capability the platform has, across all providers, as a
+    stable identifier. Values double as the keys in the auto-execute allowlist,
+    so the earn-trust governance is uniform: an operator promotes 'isolate_pod'
+    exactly the way they promote 'disable_access_key'."""
 
+    # --- AWS ---
     DISABLE_ACCESS_KEY = "disable_access_key"
     ATTACH_DENY_ALL_TO_PRINCIPAL = "attach_deny_all_to_principal"
     ISOLATE_INSTANCE_SG = "isolate_instance_sg"
@@ -135,11 +39,17 @@ class ActionClass(str, Enum):
     BLOCK_IP = "block_ip"
     REVOKE_ROLE_SESSIONS = "revoke_role_sessions"
 
+    # --- Kubernetes ---
+    ISOLATE_POD = "isolate_pod"                    # deny-all NetworkPolicy over the pod
+    CORDON_NODE = "cordon_node"                    # stop new scheduling onto a node
+    DELETE_POD = "delete_pod"                      # kill the pod (controller reschedules)
+    SCALE_DEPLOYMENT_ZERO = "scale_deployment_zero"  # take a workload to 0 replicas
+
 
 class BlastRadius(str, Enum):
-    SINGLE_RESOURCE = "single_resource"  # affects exactly one principal/instance
-    SUBNET = "subnet"                    # affects a subnet / shared NACL
-    ACCOUNT = "account"                  # account-wide effect
+    SINGLE_RESOURCE = "single_resource"  # affects exactly one principal/instance/pod
+    SUBNET = "subnet"                    # affects a subnet / shared NACL / node
+    ACCOUNT = "account"                  # account/cluster-wide effect
 
 
 class TriageVerdict(BaseModel):
@@ -161,8 +71,9 @@ class ProposedAction(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    provider: str                  # which containment adapter owns this action
     action_class: ActionClass
-    target: str                    # the concrete resource id / arn / ip
+    target: str                    # the concrete resource id / arn / ip / pod
     rationale: str
     parameters: dict[str, Any] = Field(default_factory=dict)
 

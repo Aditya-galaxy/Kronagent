@@ -58,6 +58,12 @@ class Settings:
     # EC2 isolation. Created once by ops, referenced here.
     quarantine_security_group_id: str = ""
 
+    # --- Kubernetes ---
+    # Empty kubeconfig_path uses the default resolution (KUBECONFIG / ~/.kube/config
+    # / in-cluster). Empty context uses the current-context.
+    kubeconfig_path: str = ""
+    kube_context: str = ""
+
     # --- Audit, approvals & governance ---
     audit_log_path: str = "aegis_audit.jsonl"
     approval_store_path: str = "aegis_approvals.json"
@@ -74,6 +80,8 @@ class Settings:
             ),
             aws_region=os.getenv("AWS_REGION", "us-east-1"),
             quarantine_security_group_id=os.getenv("AEGIS_QUARANTINE_SG_ID", ""),
+            kubeconfig_path=os.getenv("AEGIS_KUBECONFIG", ""),
+            kube_context=os.getenv("AEGIS_KUBE_CONTEXT", ""),
             audit_log_path=os.getenv("AEGIS_AUDIT_PATH", "aegis_audit.jsonl"),
             approval_store_path=os.getenv("AEGIS_APPROVAL_PATH", "aegis_approvals.json"),
             allowlist_store_path=os.getenv("AEGIS_ALLOWLIST_PATH", "aegis_allowlist.json"),
