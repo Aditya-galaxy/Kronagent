@@ -1,0 +1,9 @@
+# Aegis runtime dependencies.
+pydantic>=2.13
+google-genai>=2.12
+python-dotenv>=1.2
+
+# Real execution / live ingestion (dry-run and the test suite need neither --
+# every adapter imports these lazily):
+boto3>=1.43          # AWS containment (IAM/EC2) + SQS ingestion
+kubernetes>=30.0      # Kubernetes containment
