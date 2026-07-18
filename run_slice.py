@@ -42,10 +42,27 @@ from aegis.ingestion import FileReplaySource, QueuedFinding, SqsFindingSource
 from aegis.llm import GeminiTriageClient, LLMUnavailableError
 from aegis.orchestrator import Orchestrator, _log
 from aegis.policy import PolicyEngine
+from aegis.providers import NORMALIZERS, build_containment_adapters
 from aegis.triage import TriageEngine
 
+# Default file-replay set — one sample per provider, to exercise the whole
+# multi-provider pipeline in one local run with no cloud/cluster.
+_DEFAULT_REPLAY: list[tuple[str, str]] = [
+    ("aws", "samples/guardduty_findings.json"),
+    ("kubernetes", "samples/k8s_audit_events.json"),
+]
 
-async def main(findings_path: str) -> int:
+
+async def _replay_files(sources, queue, stop) -> None:
+    """Stream several file sources into the queue in order, then return."""
+    for provider, path in sources:
+        normalizer = NORMALIZERS[provider]
+        await FileReplaySource(path, normalizer, interval=0.5).stream(queue, stop)
+        if stop.is_set():
+            return
+
+
+async def main(replay: list[tuple[str, str]]) -> int:
     settings = Settings.from_env()
 
     # Triage LLM is optional — the pipeline degrades to deterministic triage.
@@ -60,7 +77,7 @@ async def main(findings_path: str) -> int:
     allowlist = AllowlistStore(settings.allowlist_store_path, seed=settings.auto_execute_allowlist)
     triage = TriageEngine(llm)
     policy = PolicyEngine(settings, allowlist)
-    containment = ContainmentExecutor(settings)
+    containment = ContainmentExecutor(settings, build_containment_adapters(settings))
     approvals = ApprovalStore(settings.approval_store_path)
     orchestrator = Orchestrator(
         settings, triage=triage, policy=policy, containment=containment,
@@ -68,7 +85,7 @@ async def main(findings_path: str) -> int:
     )
 
     allowed = sorted(e.action_class for e in allowlist.list())
-    _log("BOOT", "=== Aegis GuardDuty threat-defense slice starting ===")
+    _log("BOOT", "=== Aegis autonomous threat-defense platform starting ===")
     _log("BOOT", f"mode: {'DRY-RUN (no execution)' if settings.dry_run else 'LIVE EXECUTION'}"
                  f" | kill_switch={settings.kill_switch}")
     _log("BOOT", f"auto-execute allowlist: {allowed or 'EMPTY (all actions need approval)'}")
@@ -78,28 +95,28 @@ async def main(findings_path: str) -> int:
     stop = asyncio.Event()
     ingestion_done = asyncio.Event()
 
-    # Source selection: SQS if AEGIS_SQS_QUEUE_URL is set (live GuardDuty ->
-    # EventBridge -> SQS), else replay findings from disk. The SQS source runs
-    # until interrupted (Ctrl-C); the file source finishes on its own.
+    # Source selection: SQS if AEGIS_SQS_QUEUE_URL is set (live source, runs
+    # until Ctrl-C), else replay sample events from disk across all providers.
     sqs_url = os.getenv("AEGIS_SQS_QUEUE_URL")
     if sqs_url:
-        _log("BOOT", f"ingestion: SQS long-poll {sqs_url} (region {settings.aws_region})")
-        source = SqsFindingSource(sqs_url, region=settings.aws_region, wait_seconds=20)
+        sqs_provider = os.getenv("AEGIS_SQS_PROVIDER", "aws")
+        _log("BOOT", f"ingestion: SQS long-poll {sqs_url} (provider={sqs_provider}, "
+                     f"region {settings.aws_region})")
+        source = SqsFindingSource(
+            sqs_url, NORMALIZERS[sqs_provider], region=settings.aws_region, wait_seconds=20
+        )
+        producer = asyncio.create_task(source.stream(queue, stop))
         live = True
     else:
-        _log("BOOT", f"ingestion: file replay {findings_path}")
-        source = FileReplaySource(findings_path, interval=0.5)
+        _log("BOOT", f"ingestion: file replay {[p for _, p in replay]} "
+                     f"(providers: {sorted({pr for pr, _ in replay})})")
+        producer = asyncio.create_task(_replay_files(replay, queue, stop))
         live = False
 
-    producer = asyncio.create_task(source.stream(queue, stop))
     consumer = asyncio.create_task(orchestrator.run(queue, ingestion_done))
 
     try:
-        if live:
-            # Live mode: run until Ctrl-C, then drain gracefully.
-            await producer
-        else:
-            await producer        # replay source finishes on its own
+        await producer            # live: until Ctrl-C; replay: finishes on its own
     except (KeyboardInterrupt, asyncio.CancelledError):
         _log("BOOT", "shutdown requested — draining in-flight findings")
     finally:
@@ -127,9 +144,22 @@ async def main(findings_path: str) -> int:
 
 
 if __name__ == "__main__":
-    path = sys.argv[1] if len(sys.argv) > 1 else "samples/guardduty_findings.json"
+    # Usage:
+    #   run_slice.py                         -> replay every provider's sample set
+    #   run_slice.py <provider> <path.json>  -> replay one file as that provider
+    if len(sys.argv) >= 3:
+        prov = sys.argv[1]
+        if prov not in NORMALIZERS:
+            _log("BOOT", f"unknown provider '{prov}'. Known: {sorted(NORMALIZERS)}")
+            raise SystemExit(2)
+        replay = [(prov, sys.argv[2])]
+    elif len(sys.argv) == 2:
+        # Back-compat: a bare path is replayed as AWS/GuardDuty.
+        replay = [("aws", sys.argv[1])]
+    else:
+        replay = _DEFAULT_REPLAY
     try:
-        raise SystemExit(asyncio.run(main(path)))
+        raise SystemExit(asyncio.run(main(replay)))
     except KeyboardInterrupt:
         # Ctrl-C during startup/teardown outside the drained window.
         _log("BOOT", "interrupted.")

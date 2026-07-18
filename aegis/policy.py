@@ -70,6 +70,34 @@ _ACTION_PROPERTIES: dict[ActionClass, dict] = {
         "blast_radius": BlastRadius.SINGLE_RESOURCE,
         "destructive": True,
     },
+
+    # --- Kubernetes ---
+    ActionClass.ISOLATE_POD: {
+        "reversible": True,   # remove the label + delete the NetworkPolicy
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": False,
+    },
+    ActionClass.CORDON_NODE: {
+        # Non-disruptive: stops NEW scheduling only, running pods untouched;
+        # fully reversible via uncordon. Node-scoped but low-impact.
+        "reversible": True,
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": False,
+    },
+    ActionClass.DELETE_POD: {
+        # A controller reschedules a replacement, but the running process is
+        # killed -> disruptive; gate behind approval.
+        "reversible": True,
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": True,
+    },
+    ActionClass.SCALE_DEPLOYMENT_ZERO: {
+        # Reversible (scale back up) but takes the whole workload down ->
+        # destructive; approval-gated.
+        "reversible": True,
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": True,
+    },
 }
 
 

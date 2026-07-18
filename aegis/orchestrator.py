@@ -17,8 +17,9 @@ from .audit import AuditLog
 from .config import Settings
 from .containment import ContainmentExecutor
 from .ingestion import QueuedFinding
+from .model import Finding
 from .policy import PolicyEngine
-from .schemas import AuditRecord, GuardDutyFinding
+from .schemas import AuditRecord
 from .triage import TriageEngine
 
 
@@ -53,28 +54,29 @@ class Orchestrator:
     def processed(self) -> int:
         return self._processed
 
-    async def _handle(self, finding: GuardDutyFinding) -> None:
-        _log("INCIDENT", f"--- {finding.Id} | {finding.Type} | severity={finding.Severity} ---")
+    async def _handle(self, finding: Finding) -> None:
+        _log("INCIDENT", f"--- [{finding.provider}] {finding.finding_id} | "
+                         f"{finding.finding_type} | severity={finding.severity} ---")
 
         # 1. Triage (deterministic detection + LLM enrichment)
         verdict, candidates = await self._triage.assess(finding)
         _log(
             "TRIAGE",
-            f"{finding.Id}: actionable={verdict.is_actionable_threat} "
+            f"{finding.finding_id}: actionable={verdict.is_actionable_threat} "
             f"category='{verdict.threat_category}' confidence={verdict.confidence:.2f}",
         )
-        _log("TRIAGE", f"{finding.Id}: {verdict.justification}")
+        _log("TRIAGE", f"{finding.finding_id}: {verdict.justification}")
         await self._audit.record(AuditRecord(
-            finding_id=finding.Id, stage="triage", payload=verdict.model_dump()
+            finding_id=finding.finding_id, stage="triage", payload=verdict.model_dump()
         ))
 
         if not verdict.is_actionable_threat:
-            _log("INCIDENT", f"{finding.Id}: triaged non-actionable — monitoring only. --- done ---")
+            _log("INCIDENT", f"{finding.finding_id}: triaged non-actionable — monitoring only. --- done ---")
             self._processed += 1
             return
 
         if not candidates:
-            _log("INCIDENT", f"{finding.Id}: no containment action available for this resource type. --- done ---")
+            _log("INCIDENT", f"{finding.finding_id}: no containment action available for this resource type. --- done ---")
             self._processed += 1
             return
 
@@ -82,13 +84,13 @@ class Orchestrator:
         for action in candidates:
             decision = self._policy.decide(action, severity=verdict.severity)
             await self._audit.record(AuditRecord(
-                finding_id=finding.Id, stage="policy",
+                finding_id=finding.finding_id, stage="policy",
                 payload={"action": action.model_dump(), "decision": decision.model_dump()},
             ))
 
             outcome = await self._containment.execute(action, decision)
             await self._audit.record(AuditRecord(
-                finding_id=finding.Id, stage="containment", payload=outcome.model_dump(),
+                finding_id=finding.finding_id, stage="containment", payload=outcome.model_dump(),
             ))
 
             marker = {
@@ -98,15 +100,15 @@ class Orchestrator:
             }[decision.disposition]
             _log(
                 "POLICY",
-                f"{finding.Id}: {action.action_class.value} -> {marker} "
+                f"{finding.finding_id}: {action.action_class.value} -> {marker} "
                 f"(reversible={decision.reversible}, blast={decision.blast_radius.value})",
             )
 
             # Persist approval-gated actions so an operator can authorize them.
             if decision.disposition == "requires_approval" and self._approvals is not None:
                 req = self._approvals.add(ApprovalRequest(
-                    finding_id=finding.Id,
-                    finding_type=finding.Type,
+                    finding_id=finding.finding_id,
+                    finding_type=finding.finding_type,
                     severity=verdict.severity,
                     action_class=action.action_class,
                     target=action.target,
@@ -118,15 +120,15 @@ class Orchestrator:
                     planned_api_calls=outcome.api_calls,
                     rollback_hint=outcome.rollback_hint,
                 ))
-                _log("CONTAIN", f"{finding.Id}: {outcome.detail}  [approval id: {req.request_id}]")
+                _log("CONTAIN", f"{finding.finding_id}: {outcome.detail}  [approval id: {req.request_id}]")
             else:
-                _log("CONTAIN", f"{finding.Id}: {outcome.detail}")
+                _log("CONTAIN", f"{finding.finding_id}: {outcome.detail}")
 
             for call in outcome.api_calls:
-                _log("CONTAIN", f"{finding.Id}:   plan $ {call}")
-            _log("CONTAIN", f"{finding.Id}:   rollback: {outcome.rollback_hint}")
+                _log("CONTAIN", f"{finding.finding_id}:   plan $ {call}")
+            _log("CONTAIN", f"{finding.finding_id}:   rollback: {outcome.rollback_hint}")
 
-        _log("INCIDENT", f"{finding.Id}: --- response complete ---")
+        _log("INCIDENT", f"{finding.finding_id}: --- response complete ---")
         self._processed += 1
 
     async def run(self, queue: "asyncio.Queue[QueuedFinding]", ingestion_done: asyncio.Event) -> None:
@@ -139,9 +141,9 @@ class Orchestrator:
             try:
                 await self._handle(finding)
             except Exception as exc:  # noqa: BLE001 - one bad finding must not stop the pipeline
-                _log("ERROR", f"{finding.Id}: pipeline error — {type(exc).__name__}: {exc}")
+                _log("ERROR", f"{finding.finding_id}: pipeline error — {type(exc).__name__}: {exc}")
                 await self._audit.record(AuditRecord(
-                    finding_id=finding.Id, stage="error", payload={"error": str(exc)}
+                    finding_id=finding.finding_id, stage="error", payload={"error": str(exc)}
                 ))
             finally:
                 # Retire the message from the upstream source only after it has
@@ -150,6 +152,6 @@ class Orchestrator:
                 try:
                     await item.ack()
                 except Exception as exc:  # noqa: BLE001
-                    _log("ERROR", f"{finding.Id}: ack failed (will redeliver) — "
+                    _log("ERROR", f"{finding.finding_id}: ack failed (will redeliver) — "
                                   f"{type(exc).__name__}: {exc}")
                 queue.task_done()

@@ -1,0 +1,36 @@
+[
+  {
+    "auditID": "k8s-audit-privesc-0001",
+    "verb": "create",
+    "user": { "username": "system:serviceaccount:default:anonymous", "groups": ["system:unauthenticated"] },
+    "sourceIPs": ["10.0.9.14"],
+    "objectRef": { "resource": "pods", "namespace": "payments", "name": "payments-api-7f9c8d", "subresource": "exec" },
+    "detected_rule": "privilege_escalation_exec",
+    "node_name": "ip-10-0-3-51.ec2.internal"
+  },
+  {
+    "auditID": "k8s-audit-secrets-0002",
+    "verb": "get",
+    "user": { "username": "system:serviceaccount:ci:deleted-job-token", "groups": ["system:serviceaccounts"] },
+    "sourceIPs": ["10.0.4.201"],
+    "objectRef": { "resource": "secrets", "namespace": "kube-system", "name": "*" },
+    "detected_rule": "secret_enumeration"
+  },
+  {
+    "auditID": "k8s-audit-cryptomine-0003",
+    "verb": "create",
+    "user": { "username": "system:serviceaccount:default:builder", "groups": ["system:serviceaccounts"] },
+    "sourceIPs": ["10.0.7.88"],
+    "objectRef": { "resource": "deployments", "namespace": "default", "name": "nginx-update-svc" },
+    "detected_rule": "crypto_mining_pod"
+  },
+  {
+    "auditID": "k8s-audit-noise-0004",
+    "verb": "list",
+    "user": { "username": "system:serviceaccount:monitoring:prometheus", "groups": ["system:serviceaccounts"] },
+    "sourceIPs": ["10.0.2.10"],
+    "objectRef": { "resource": "pods", "namespace": "monitoring", "name": "node-exporter-abc12" },
+    "detected_rule": "benign_scan",
+    "node_name": "ip-10-0-2-10.ec2.internal"
+  }
+]

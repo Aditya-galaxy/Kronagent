@@ -1,21 +1,23 @@
 """
-Triage engine: fuse deterministic detection with LLM reasoning.
+Triage engine: fuse deterministic detection with LLM reasoning — provider-neutral.
 
-GuardDuty is the detector — it already decided *something* is wrong and assigned
-a severity and finding type. This engine does two things:
+The detector (GuardDuty, a Kubernetes audit rule, Falco, ...) already decided
+something is wrong and, after normalization, handed us a `Finding` with a
+severity and concrete resources. This engine does two things:
 
-  1. Deterministic action mapping (grounded, no LLM): from the finding's
-     resource type and finding type, derive the concrete candidate containment
-     actions, with targets read straight from the parsed finding. This is what
-     keeps containment aimed at the real compromised resource.
+  1. Deterministic action mapping (grounded, no LLM): delegate to the finding's
+     provider planner to derive candidate containment actions, with targets read
+     straight from the normalized finding. This is what keeps containment aimed
+     at the real compromised resource, on any substrate.
 
   2. LLM enrichment (Gemini, structured output): reason about the finding —
-     categorize the threat, assign a response confidence, explain the
-     rationale, note correlated signals. The LLM's judgment gates *whether* to
-     proceed, never *which resource* is targeted.
+     categorize the threat, assign a response confidence, explain the rationale.
+     The LLM's judgment gates *whether* to proceed, never *which resource* is
+     targeted, so a prompt-injection payload in telemetry cannot redirect an
+     action onto an attacker-chosen resource.
 
 If the LLM is unavailable, triage degrades to a deterministic verdict driven by
-GuardDuty severity, so the pipeline never stalls waiting on the model.
+the normalized severity, so the pipeline never stalls waiting on the model.
 """
 
 from __future__ import annotations
@@ -23,20 +25,17 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from .llm import GeminiTriageClient, LLMUnavailableError
-from .schemas import (
-    ActionClass,
-    GuardDutyFinding,
-    ProposedAction,
-    TriageVerdict,
-)
+from .model import Finding
+from .providers import plan_actions
+from .schemas import ProposedAction, TriageVerdict
 
 _SYSTEM = (
-    "You are a senior cloud SOC analyst reviewing a confirmed Amazon GuardDuty "
-    "finding. GuardDuty has already detected suspicious activity; your job is to "
-    "reason about it: categorize the threat, judge how confident you are that "
-    "autonomous containment is warranted, and explain why. Be conservative — "
-    "reserve high confidence for unambiguous evidence. Respond ONLY with the "
-    "required JSON object."
+    "You are a senior SOC analyst reviewing a confirmed security finding from a "
+    "cloud, cluster, or endpoint detector. The detector has already flagged "
+    "suspicious activity; your job is to reason about it: categorize the threat, "
+    "judge how confident you are that autonomous containment is warranted, and "
+    "explain why. Be conservative — reserve high confidence for unambiguous "
+    "evidence. Respond ONLY with the required JSON object."
 )
 
 
@@ -56,72 +55,29 @@ class _LLMTriageOutput(BaseModel):
     )
 
 
-# Deterministic map: GuardDuty resource type -> candidate containment actions.
-# Targets are filled from the finding, not chosen by the model.
-def _candidate_actions(finding: GuardDutyFinding) -> list[ProposedAction]:
-    actions: list[ProposedAction] = []
-    res = finding.Resource
-    rtype = (res.ResourceType or "").lower()
-
-    if rtype == "accesskey" and res.AccessKeyDetails:
-        akd = res.AccessKeyDetails
-        if akd.AccessKeyId:
-            actions.append(ProposedAction(
-                action_class=ActionClass.DISABLE_ACCESS_KEY,
-                target=akd.AccessKeyId,
-                rationale="Deactivate the compromised access key to stop credential abuse.",
-                parameters={"user_name": akd.UserName or ""},
-            ))
-        if akd.UserName:
-            actions.append(ProposedAction(
-                action_class=ActionClass.ATTACH_DENY_ALL_TO_PRINCIPAL,
-                target=akd.UserName,
-                rationale="Attach an explicit deny-all policy to halt all further API activity by the principal.",
-            ))
-
-    elif rtype == "instance" and res.InstanceDetails and res.InstanceDetails.InstanceId:
-        iid = res.InstanceDetails.InstanceId
-        actions.append(ProposedAction(
-            action_class=ActionClass.ISOLATE_INSTANCE_SG,
-            target=iid,
-            rationale="Swap the instance to a deny-all quarantine security group, preserving it for forensics.",
-        ))
-        actions.append(ProposedAction(
-            action_class=ActionClass.TERMINATE_INSTANCE,
-            target=iid,
-            rationale="Terminate the instance if isolation is insufficient (destructive; approval-gated).",
-        ))
-
-    # If the finding carries a remote attacker IP, offer to block it regardless
-    # of resource type.
-    ip = finding.remote_ip
-    if ip:
-        actions.append(ProposedAction(
-            action_class=ActionClass.BLOCK_IP,
-            target=ip,
-            rationale="Block the remote IP observed driving the malicious API activity.",
-        ))
-
-    return actions
-
-
 class TriageEngine:
     def __init__(self, llm: GeminiTriageClient | None) -> None:
         self._llm = llm
 
-    async def assess(self, finding: GuardDutyFinding) -> tuple[TriageVerdict, list[ProposedAction]]:
-        candidates = _candidate_actions(finding)
+    async def assess(self, finding: Finding) -> tuple[TriageVerdict, list[ProposedAction]]:
+        # Candidate actions come from the provider planner — targets from the
+        # normalized finding, not the model.
+        candidates = plan_actions(finding)
 
+        resource_lines = "\n".join(
+            f"  - {r.kind} {r.id}" + (f" ({r.attributes})" if r.attributes else "")
+            for r in finding.resources
+        ) or "  (none)"
         prompt = (
-            "Review this GuardDuty finding.\n\n"
-            f"Finding ID: {finding.Id}\n"
-            f"Type: {finding.Type}\n"
-            f"Severity (GuardDuty scale): {finding.Severity} ({finding.severity_band})\n"
-            f"Title: {finding.Title or 'n/a'}\n"
-            f"Description: {finding.Description or 'n/a'}\n"
-            f"Resource type: {finding.Resource.ResourceType or 'n/a'}\n"
+            "Review this security finding.\n\n"
+            f"Provider: {finding.provider}\n"
+            f"Finding ID: {finding.finding_id}\n"
+            f"Type: {finding.finding_type}\n"
+            f"Severity (0-10 normalized): {finding.severity} ({finding.severity_band})\n"
+            f"Title: {finding.title or 'n/a'}\n"
+            f"Description: {finding.description or 'n/a'}\n"
             f"Remote IP: {finding.remote_ip or 'n/a'}\n"
-            f"Repeat count: {finding.Service.Count if finding.Service else 'n/a'}\n"
+            f"Implicated resources:\n{resource_lines}\n"
         )
 
         if self._llm is not None:
@@ -130,11 +86,11 @@ class TriageEngine:
                     system=_SYSTEM, prompt=prompt, schema=_LLMTriageOutput
                 )
                 verdict = TriageVerdict(
-                    finding_id=finding.Id,
+                    finding_id=finding.finding_id,
                     is_actionable_threat=out.is_actionable_threat,
                     threat_category=out.threat_category,
                     confidence=out.confidence,
-                    severity=finding.Severity,
+                    severity=finding.severity,
                     justification=out.justification,
                     correlated_signals=out.correlated_signals,
                 )
@@ -142,16 +98,16 @@ class TriageEngine:
             except (LLMUnavailableError, Exception):  # noqa: BLE001 - fall back deterministically
                 pass
 
-        # Deterministic fallback: GuardDuty severity alone drives the verdict.
+        # Deterministic fallback: normalized severity alone drives the verdict.
         verdict = TriageVerdict(
-            finding_id=finding.Id,
-            is_actionable_threat=finding.Severity >= 4.0,
-            threat_category=finding.Type.split(":")[0] if ":" in finding.Type else finding.Type,
-            confidence=min(1.0, finding.Severity / 8.9),
-            severity=finding.Severity,
+            finding_id=finding.finding_id,
+            is_actionable_threat=finding.severity >= 4.0,
+            threat_category=finding.title or finding.finding_type,
+            confidence=min(1.0, finding.severity / 10.0),
+            severity=finding.severity,
             justification=(
-                "FALLBACK (LLM unavailable): verdict derived from GuardDuty severity "
-                f"{finding.Severity} and finding type {finding.Type}."
+                "FALLBACK (LLM unavailable): verdict derived from normalized severity "
+                f"{finding.severity} and finding type {finding.finding_type}."
             ),
             correlated_signals=[s for s in [finding.remote_ip] if s],
         )
