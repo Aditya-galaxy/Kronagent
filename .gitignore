@@ -6,6 +6,7 @@
 # Aegis runtime state (operational, not source)
 aegis_audit.jsonl
 aegis_approvals.json
+aegis_allowlist.json
 *.jsonl
 
 # Python
