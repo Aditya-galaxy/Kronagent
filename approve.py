@@ -28,6 +28,7 @@ from aegis.approvals import ApprovalStore, now_iso
 from aegis.audit import AuditLog
 from aegis.config import Settings
 from aegis.containment import ContainmentExecutor
+from aegis.providers import build_containment_adapters
 from aegis.schemas import AuditRecord, BlastRadius, PolicyDecision
 
 
@@ -113,7 +114,7 @@ def cmd_approve(store: ApprovalStore, audit: AuditLog, settings: Settings,
         blast_radius=BlastRadius(r.blast_radius),
     )
     action = r.to_proposed_action()
-    containment = ContainmentExecutor(settings)
+    containment = ContainmentExecutor(settings, build_containment_adapters(settings))
 
     # Record the approval decision BEFORE execution, then the outcome after.
     async def _run():

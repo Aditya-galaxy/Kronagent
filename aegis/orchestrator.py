@@ -110,6 +110,7 @@ class Orchestrator:
                     finding_id=finding.finding_id,
                     finding_type=finding.finding_type,
                     severity=verdict.severity,
+                    provider=action.provider,
                     action_class=action.action_class,
                     target=action.target,
                     rationale=action.rationale,

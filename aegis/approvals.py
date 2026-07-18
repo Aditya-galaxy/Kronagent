@@ -40,6 +40,7 @@ class ApprovalRequest(BaseModel):
     finding_id: str
     finding_type: str
     severity: float
+    provider: str = "aws"         # which containment adapter owns this action
     action_class: ActionClass
     target: str
     rationale: str
@@ -59,6 +60,7 @@ class ApprovalRequest(BaseModel):
 
     def to_proposed_action(self) -> ProposedAction:
         return ProposedAction(
+            provider=self.provider,
             action_class=self.action_class,
             target=self.target,
             rationale=self.rationale,
