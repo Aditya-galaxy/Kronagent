@@ -12,11 +12,13 @@ from the environment. The two load-bearing safety controls are:
                         entirely (not even dry-run planning proceeds to
                         execution). A single global stop.
 
-Graduated autonomy is expressed by `auto_execute_allowlist`: an action class
-executes automatically ONLY if it is (a) classified AUTO_ELIGIBLE by the
-policy engine AND (b) explicitly present in this allowlist. The allowlist
-starts empty — operators add action classes one at a time as each earns
-trust. Everything else routes to human approval.
+Graduated autonomy is expressed by the allowlist (see allowlist.py): an action
+class executes automatically ONLY if it is (a) classified AUTO_ELIGIBLE by the
+policy engine AND (b) explicitly present in the allowlist. The allowlist is a
+persisted, audited store — promote/demote it with promote.py, not by editing
+this file or its env var. `auto_execute_allowlist` below is consulted ONLY to
+seed that store the first time it's created (so an existing deployment isn't
+silently reset to empty); once the store file exists, this env var is ignored.
 """
 
 from __future__ import annotations
@@ -42,9 +44,8 @@ class Settings:
     # --- Safety controls (fail safe) ---
     dry_run: bool = True
     kill_switch: bool = False
-    # Action classes (by value of ActionClass) approved for autonomous
-    # execution. Empty = every action requires human approval. Earn-trust:
-    # operators grow this list deliberately.
+    # First-run seed only — see the module docstring. Live state lives in
+    # AllowlistStore at allowlist_store_path; manage it with promote.py.
     auto_execute_allowlist: frozenset[str] = field(default_factory=frozenset)
 
     # Findings at or above this GuardDuty severity are eligible for
@@ -57,9 +58,10 @@ class Settings:
     # EC2 isolation. Created once by ops, referenced here.
     quarantine_security_group_id: str = ""
 
-    # --- Audit & approvals ---
+    # --- Audit, approvals & governance ---
     audit_log_path: str = "aegis_audit.jsonl"
     approval_store_path: str = "aegis_approvals.json"
+    allowlist_store_path: str = "aegis_allowlist.json"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -74,4 +76,5 @@ class Settings:
             quarantine_security_group_id=os.getenv("AEGIS_QUARANTINE_SG_ID", ""),
             audit_log_path=os.getenv("AEGIS_AUDIT_PATH", "aegis_audit.jsonl"),
             approval_store_path=os.getenv("AEGIS_APPROVAL_PATH", "aegis_approvals.json"),
+            allowlist_store_path=os.getenv("AEGIS_ALLOWLIST_PATH", "aegis_allowlist.json"),
         )

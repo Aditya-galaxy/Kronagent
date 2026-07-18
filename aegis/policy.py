@@ -3,8 +3,12 @@ Graduated-autonomy policy engine.
 
 This is the gate between "the response layer proposed an action" and "the
 platform is allowed to execute it autonomously." It is deliberately pure,
-deterministic logic — no LLM, no I/O — so its decisions are auditable,
-testable, and cannot be influenced by prompt injection in the telemetry.
+deterministic logic driven only by the finding's severity and the action
+class's intrinsic properties — no LLM, so its decisions cannot be influenced
+by prompt injection in the telemetry. The one piece of I/O is a read of the
+persisted, audited AllowlistStore (see allowlist.py) — every decision reflects
+the allowlist as it stands *right now*, so a promotion/demotion takes effect
+immediately with no restart.
 
 Decision procedure for each proposed action:
 
@@ -14,15 +18,18 @@ Decision procedure for each proposed action:
   4. An action is AUTO_ELIGIBLE iff it is reversible AND single-resource AND
      not in the intrinsically-destructive set.
   5. It actually auto-executes iff it is AUTO_ELIGIBLE **and** its class is in
-     the operator-maintained auto_execute_allowlist (earn-trust).
+     the AllowlistStore (earn-trust).
   6. Otherwise -> requires_approval.
 
 The allowlist is the earn-trust dial: it starts empty (everything needs a
-human), and operators promote one action class at a time as it proves safe.
+human), and operators promote one action class at a time — via promote.py,
+never a direct edit — as it proves safe. Every promotion/demotion is written
+to the hash-chained audit log with who did it and why.
 """
 
 from __future__ import annotations
 
+from .allowlist import AllowlistStore
 from .config import Settings
 from .schemas import ActionClass, BlastRadius, PolicyDecision, ProposedAction
 
@@ -67,8 +74,9 @@ _ACTION_PROPERTIES: dict[ActionClass, dict] = {
 
 
 class PolicyEngine:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, allowlist: AllowlistStore) -> None:
         self._settings = settings
+        self._allowlist = allowlist
 
     def _properties(self, action_class: ActionClass) -> dict:
         # Unknown action classes default to the most restrictive posture.
@@ -113,7 +121,7 @@ class PolicyEngine:
             )
 
         auto_eligible = self.is_auto_eligible(action.action_class)
-        allowlisted = action.action_class.value in s.auto_execute_allowlist
+        allowlisted = self._allowlist.is_allowed(action.action_class)
 
         if auto_eligible and allowlisted:
             return PolicyDecision(

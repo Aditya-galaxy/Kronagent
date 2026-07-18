@@ -9,16 +9,19 @@ Wires the real pipeline end to end:
 
 Ingestion defaults to replaying real-schema findings from samples/ so the whole
 system runs locally with no AWS account. Point it at a live SQS queue (fed by
-GuardDuty -> EventBridge) and flip AEGIS_DRY_RUN=false + grow
-AEGIS_AUTO_EXECUTE_ALLOWLIST to graduate it toward autonomy.
+GuardDuty -> EventBridge) and flip AEGIS_DRY_RUN=false + promote an action
+class with promote.py to graduate it toward autonomy.
 
 Safety posture (all overridable via env, all default safe):
     AEGIS_DRY_RUN=true                 # plan only; nothing is executed
     AEGIS_KILL_SWITCH=false            # global halt of all containment
-    AEGIS_AUTO_EXECUTE_ALLOWLIST=""    # empty => every action needs approval
     AEGIS_MIN_SEVERITY=4.0             # below this: alert only
     AEGIS_QUARANTINE_SG_ID=            # required for real instance isolation
     GEMINI_API_KEY=...                 # triage enrichment (optional; degrades)
+
+The auto-execute allowlist is NOT an env var — it's an audited, persisted
+store. Empty until an operator runs `promote.py add <action_class>`. See
+allowlist.py.
 
 Usage:
     python3 run_slice.py [path-to-findings.json]
@@ -27,10 +30,10 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 
-import os
-
+from aegis.allowlist import AllowlistStore
 from aegis.approvals import ApprovalStore
 from aegis.audit import AuditLog
 from aegis.config import Settings
@@ -53,20 +56,22 @@ async def main(findings_path: str) -> int:
         llm = None
         llm_status = f"LLM disabled ({exc}) — deterministic triage only"
 
-    triage = TriageEngine(llm)
-    policy = PolicyEngine(settings)
-    containment = ContainmentExecutor(settings)
     audit = AuditLog(settings.audit_log_path)
+    allowlist = AllowlistStore(settings.allowlist_store_path, seed=settings.auto_execute_allowlist)
+    triage = TriageEngine(llm)
+    policy = PolicyEngine(settings, allowlist)
+    containment = ContainmentExecutor(settings)
     approvals = ApprovalStore(settings.approval_store_path)
     orchestrator = Orchestrator(
         settings, triage=triage, policy=policy, containment=containment,
         audit=audit, approvals=approvals,
     )
 
+    allowed = sorted(e.action_class for e in allowlist.list())
     _log("BOOT", "=== Aegis GuardDuty threat-defense slice starting ===")
     _log("BOOT", f"mode: {'DRY-RUN (no execution)' if settings.dry_run else 'LIVE EXECUTION'}"
                  f" | kill_switch={settings.kill_switch}")
-    _log("BOOT", f"auto-execute allowlist: {sorted(settings.auto_execute_allowlist) or 'EMPTY (all actions need approval)'}")
+    _log("BOOT", f"auto-execute allowlist: {allowed or 'EMPTY (all actions need approval)'}")
     _log("BOOT", f"triage: {llm_status}")
 
     queue: "asyncio.Queue[QueuedFinding]" = asyncio.Queue(maxsize=256)
