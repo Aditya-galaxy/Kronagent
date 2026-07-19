@@ -57,6 +57,12 @@ class ApprovalRequest(BaseModel):
     mitre_techniques: list[str] = Field(default_factory=list)
     threat_intel_summary: str = ""
 
+    # Advisory correlation context (from the Investigation / Correlation Agent):
+    # prior findings this one appears related to, and the campaign summary. Also
+    # purely informational — tells the human "this isn't an isolated alert."
+    related_finding_ids: list[str] = Field(default_factory=list)
+    correlation_summary: str = ""
+
     # Decision state (mutated by an operator).
     status: Literal["pending", "approved", "denied", "executed", "failed"] = "pending"
     decided_by: Optional[str] = None

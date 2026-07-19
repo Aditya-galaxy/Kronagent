@@ -1,0 +1,49 @@
+[
+  {
+    "SchemaVersion": "2.0",
+    "AccountId": "123456789012",
+    "Region": "us-east-1",
+    "Id": "campaign-recon-0001",
+    "Type": "Recon:EC2/PortProbeUnprotectedPort",
+    "Severity": 2.0,
+    "Title": "Port probing from 185.220.101.7 against a public EC2 instance.",
+    "Description": "Low-volume port probing from 185.220.101.7 (a known Tor exit node) against EC2 instance i-0a1b2c3d4e5f60789. Reconnaissance, low severity on its own.",
+    "CreatedAt": "2026-07-19T09:00:00.000Z",
+    "Resource": {
+      "ResourceType": "Instance",
+      "InstanceDetails": { "InstanceId": "i-0a1b2c3d4e5f60789" }
+    },
+    "Service": {
+      "ServiceName": "guardduty", "Count": 6,
+      "Action": {
+        "ActionType": "NETWORK_CONNECTION",
+        "AwsApiCallAction": { "RemoteIpDetails": { "IpAddressV4": "185.220.101.7" } }
+      }
+    }
+  },
+  {
+    "SchemaVersion": "2.0",
+    "AccountId": "123456789012",
+    "Region": "us-east-1",
+    "Id": "campaign-cred-exfil-0002",
+    "Type": "UnauthorizedAccess:IAMUser/InstanceCredentialExfiltration.OutsideAWS",
+    "Severity": 8.0,
+    "Title": "svc-backup role credentials used from 185.220.101.7 to read S3.",
+    "Description": "EC2 instance role credentials for svc-backup, harvested from instance i-0a1b2c3d4e5f60789, were used from 185.220.101.7 (the same Tor exit node seen probing minutes earlier) for 300+ sequential S3 GetObject calls. Credential theft and exfiltration following the earlier recon.",
+    "CreatedAt": "2026-07-19T09:14:00.000Z",
+    "Resource": {
+      "ResourceType": "AccessKey",
+      "AccessKeyDetails": { "AccessKeyId": "ASIACAMPAIGNEXFIL01", "UserName": "svc-backup", "UserType": "AssumedRole" }
+    },
+    "Service": {
+      "ServiceName": "guardduty", "Count": 300,
+      "Action": {
+        "ActionType": "AWS_API_CALL",
+        "AwsApiCallAction": {
+          "Api": "GetObject", "CallerType": "Remote IP",
+          "RemoteIpDetails": { "IpAddressV4": "185.220.101.7", "Organization": { "Org": "Tor Exit Node" } }
+        }
+      }
+    }
+  }
+]
