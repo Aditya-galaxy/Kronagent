@@ -98,13 +98,35 @@ def _queued(finding: Finding) -> tuple[QueuedFinding, Callable[[], int]]:
     return QueuedFinding(finding=finding, _ack=ack), lambda: state["acked"]
 
 
-def _orchestrator(settings, triage, policy, *, approvals=None, threat_intel=None) -> tuple[Orchestrator, AuditLog]:
+def _orchestrator(settings, triage, policy, *, approvals=None, threat_intel=None,
+                  correlation=None) -> tuple[Orchestrator, AuditLog]:
     audit = AuditLog(settings.audit_log_path)
     adapter = FakeContainmentAdapter(provider="kubernetes")
     containment = ContainmentExecutor(settings, {"kubernetes": adapter, "aws": adapter})
     orch = Orchestrator(settings, triage=triage, policy=policy, containment=containment,
-                         audit=audit, approvals=approvals, threat_intel=threat_intel)
+                         audit=audit, approvals=approvals, threat_intel=threat_intel,
+                         correlation=correlation)
     return orch, audit
+
+
+class FakeCorrelation:
+    """Records what history it was handed for each finding, and reports a
+    campaign linking to whatever prior finding_ids it saw."""
+
+    def __init__(self) -> None:
+        self.seen_prior: dict[str, list[str]] = {}
+
+    async def assess(self, finding, prior):
+        from aegis.correlation import CorrelationAssessment
+        prior_ids = [s.finding_id for s in prior]
+        self.seen_prior[finding.finding_id] = prior_ids
+        return CorrelationAssessment(
+            finding_id=finding.finding_id,
+            available=True,
+            part_of_campaign=bool(prior_ids),
+            related_finding_ids=prior_ids,
+            correlation_summary="scripted correlation" if prior_ids else "",
+        )
 
 
 async def _drain(orch: Orchestrator, items: list[QueuedFinding]) -> None:
@@ -349,4 +371,86 @@ async def test_ack_failure_is_logged_not_raised(settings) -> None:
 
     # Must not raise -- a failed ack means "will redeliver," not "crash the pipeline."
     await _drain(orch, [item])
+    assert orch.processed == 1
+
+
+# --------------------------------------------------------------------------- #
+# Correlation agent integration
+# --------------------------------------------------------------------------- #
+
+async def test_correlation_memory_accumulates_across_findings(settings) -> None:
+    """The second finding's correlation must see the first in its history --
+    proving the orchestrator maintains the campaign window across findings,
+    including a non-actionable first finding (a campaign's first stage)."""
+    correlation = FakeCorrelation()
+    # First finding non-actionable (noise), second actionable.
+    class SeqTriage:
+        async def assess(self, finding):
+            actionable = finding.finding_id == "f-2"
+            candidates = [_action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")] if actionable else []
+            return _verdict(finding.finding_id, actionable=actionable), candidates
+
+    orch, _ = _orchestrator(settings, SeqTriage(), FakePolicyEngine("requires_approval"),
+                            correlation=correlation)
+    i1, _ = _queued(_finding(finding_id="f-1"))
+    i2, _ = _queued(_finding(finding_id="f-2"))
+
+    await _drain(orch, [i1, i2])
+
+    # f-2 was assessed with f-1 in its prior history.
+    assert correlation.seen_prior["f-2"] == ["f-1"]
+
+
+async def test_correlation_threads_into_approval_context(settings) -> None:
+    correlation = FakeCorrelation()
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+
+    class SeqTriage:
+        async def assess(self, finding):
+            actionable = finding.finding_id == "f-2"
+            return _verdict(finding.finding_id, actionable=actionable), \
+                ([candidate] if actionable else [])
+
+    approvals = ApprovalStore(settings.approval_store_path)
+    orch, _ = _orchestrator(settings, SeqTriage(), FakePolicyEngine("requires_approval"),
+                            approvals=approvals, correlation=correlation)
+    i1, _ = _queued(_finding(finding_id="f-1"))
+    i2, _ = _queued(_finding(finding_id="f-2"))
+
+    await _drain(orch, [i1, i2])
+
+    pending = approvals.list(status="pending")
+    assert len(pending) == 1
+    assert pending[0].related_finding_ids == ["f-1"]
+    assert pending[0].correlation_summary == "scripted correlation"
+
+
+async def test_correlation_stage_is_audited(settings) -> None:
+    correlation = FakeCorrelation()
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+    orch, audit = _orchestrator(settings, triage, FakePolicyEngine("requires_approval"),
+                                correlation=correlation)
+    item, _ = _queued(_finding(finding_id="f-1"))
+
+    await _drain(orch, [item])
+
+    records = [json.loads(l)["record"] for l in open(settings.audit_log_path) if l.strip()]
+    stages = [r["stage"] for r in records]
+    assert "correlation" in stages
+    assert AuditLog.verify(settings.audit_log_path)[0] is True
+
+
+async def test_no_correlation_agent_leaves_pipeline_unchanged(settings) -> None:
+    """Correlation is optional -- with no agent, no memory is maintained and no
+    correlation stage is audited, but everything else works."""
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+    orch, audit = _orchestrator(settings, triage, FakePolicyEngine("requires_approval"))
+    item, _ = _queued(_finding(finding_id="f-1"))
+
+    await _drain(orch, [item])
+
+    records = [json.loads(l)["record"] for l in open(settings.audit_log_path) if l.strip()]
+    assert "correlation" not in [r["stage"] for r in records]
     assert orch.processed == 1
