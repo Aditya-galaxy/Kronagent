@@ -51,6 +51,12 @@ class ApprovalRequest(BaseModel):
     planned_api_calls: list[str] = Field(default_factory=list)
     rollback_hint: str = ""
 
+    # Advisory threat-intel context (from the Threat Intelligence Agent), shown
+    # to the human at approval time. Purely informational — never affects the
+    # decision the policy engine already made.
+    mitre_techniques: list[str] = Field(default_factory=list)
+    threat_intel_summary: str = ""
+
     # Decision state (mutated by an operator).
     status: Literal["pending", "approved", "denied", "executed", "failed"] = "pending"
     decided_by: Optional[str] = None

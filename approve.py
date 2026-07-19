@@ -56,6 +56,10 @@ def cmd_show(store: ApprovalStore, args: argparse.Namespace) -> int:
         print(f"No such request: {args.request_id}", file=sys.stderr)
         return 2
     print(_fmt(r))
+    if r.threat_intel_summary or r.mitre_techniques:
+        techniques = ", ".join(r.mitre_techniques) or "none mapped"
+        print(f"    threat intel: {r.threat_intel_summary}")
+        print(f"    MITRE ATT&CK: {techniques}")
     print("    planned API calls:")
     for c in r.planned_api_calls:
         print(f"      $ {c}")
