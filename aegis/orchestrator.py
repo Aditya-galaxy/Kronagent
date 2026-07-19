@@ -16,6 +16,7 @@ from .approvals import ApprovalRequest, ApprovalStore
 from .audit import AuditLog
 from .config import Settings
 from .containment import ContainmentExecutor
+from .correlation import CorrelationAgent, CorrelationAssessment, CorrelationMemory
 from .ingestion import QueuedFinding
 from .intel import ThreatIntelAgent, ThreatIntelAssessment
 from .model import Finding
@@ -43,6 +44,7 @@ class Orchestrator:
         audit: AuditLog,
         approvals: ApprovalStore | None = None,
         threat_intel: ThreatIntelAgent | None = None,
+        correlation: CorrelationAgent | None = None,
     ) -> None:
         self._settings = settings
         self._triage = triage
@@ -51,6 +53,11 @@ class Orchestrator:
         self._audit = audit
         self._approvals = approvals
         self._threat_intel = threat_intel
+        self._correlation = correlation
+        # Session-scoped campaign memory: only maintained when a correlation
+        # agent is present. Every finding is recorded (incl. non-actionable
+        # noise, which is often a campaign's first stage).
+        self._memory = CorrelationMemory() if correlation is not None else None
         self._processed = 0
 
     @property
@@ -60,6 +67,14 @@ class Orchestrator:
     async def _handle(self, finding: Finding) -> None:
         _log("INCIDENT", f"--- [{finding.provider}] {finding.finding_id} | "
                          f"{finding.finding_type} | severity={finding.severity} ---")
+
+        # Record into campaign memory BEFORE triage's early-returns, so even
+        # non-actionable noise (often a campaign's first stage) is available for
+        # a later finding to correlate against. `prior_to` excludes self.
+        prior = []
+        if self._memory is not None:
+            prior = self._memory.prior_to(finding.finding_id)
+            self._memory.add(finding)
 
         # 1. Triage (deterministic detection + LLM enrichment)
         verdict, candidates = await self._triage.assess(finding)
@@ -100,6 +115,23 @@ class Orchestrator:
                 _log("INTEL", f"{finding.finding_id}: ATT&CK: {techniques} | stage: "
                               f"{intel.attack_lifecycle_stage or 'n/a'}")
                 _log("INTEL", f"{finding.finding_id}: {intel.intel_summary}")
+
+        # 1c. Investigation / Correlation (advisory). Asks whether this finding
+        # is part of a campaign, correlating against the recent-findings window.
+        # Same envelope as intel: audited, never affects the policy decision.
+        correlation = CorrelationAssessment(finding_id=finding.finding_id, available=False)
+        if self._correlation is not None:
+            correlation = await self._correlation.assess(finding, prior)
+            await self._audit.record(AuditRecord(
+                finding_id=finding.finding_id, stage="correlation", payload=correlation.model_dump()
+            ))
+            if correlation.available and correlation.part_of_campaign:
+                _log("CORRELATE", f"{finding.finding_id}: CAMPAIGN — related to "
+                                  f"{correlation.related_finding_ids}")
+                _log("CORRELATE", f"{finding.finding_id}: {correlation.correlation_summary}")
+            elif correlation.available:
+                _log("CORRELATE", f"{finding.finding_id}: no campaign link found "
+                                  f"across {len(prior)} prior finding(s)")
 
         # 2 + 3. Policy decision and containment, per candidate action.
         for action in candidates:
@@ -143,6 +175,8 @@ class Orchestrator:
                     rollback_hint=outcome.rollback_hint,
                     mitre_techniques=intel.technique_ids(),
                     threat_intel_summary=intel.intel_summary,
+                    related_finding_ids=correlation.related_finding_ids,
+                    correlation_summary=correlation.correlation_summary,
                 ))
                 _log("CONTAIN", f"{finding.finding_id}: {outcome.detail}  [approval id: {req.request_id}]")
             else:

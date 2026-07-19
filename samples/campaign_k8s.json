@@ -1,0 +1,11 @@
+[
+  {
+    "auditID": "campaign-privesc-0003",
+    "verb": "create",
+    "user": { "username": "system:serviceaccount:default:svc-backup", "groups": ["system:serviceaccounts"] },
+    "sourceIPs": ["185.220.101.7"],
+    "objectRef": { "resource": "pods", "namespace": "payments", "name": "payments-api-7f9c8d", "subresource": "exec" },
+    "detected_rule": "privilege_escalation_exec",
+    "node_name": "ip-10-0-3-51.ec2.internal"
+  }
+]
