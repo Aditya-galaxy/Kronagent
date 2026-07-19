@@ -17,6 +17,7 @@ from .audit import AuditLog
 from .config import Settings
 from .containment import ContainmentExecutor
 from .ingestion import QueuedFinding
+from .intel import ThreatIntelAgent, ThreatIntelAssessment
 from .model import Finding
 from .policy import PolicyEngine
 from .schemas import AuditRecord
@@ -41,6 +42,7 @@ class Orchestrator:
         containment: ContainmentExecutor,
         audit: AuditLog,
         approvals: ApprovalStore | None = None,
+        threat_intel: ThreatIntelAgent | None = None,
     ) -> None:
         self._settings = settings
         self._triage = triage
@@ -48,6 +50,7 @@ class Orchestrator:
         self._containment = containment
         self._audit = audit
         self._approvals = approvals
+        self._threat_intel = threat_intel
         self._processed = 0
 
     @property
@@ -79,6 +82,24 @@ class Orchestrator:
             _log("INCIDENT", f"{finding.finding_id}: no containment action available for this resource type. --- done ---")
             self._processed += 1
             return
+
+        # 1b. Threat Intelligence enrichment (advisory). Runs only for actionable
+        # findings with candidate actions — i.e. the ones heading toward a human
+        # decision, where MITRE mapping + IOC assessment enriches the record and
+        # the approval context. Never affects the policy decision.
+        intel = ThreatIntelAssessment(finding_id=finding.finding_id, available=False)
+        if self._threat_intel is not None:
+            intel = await self._threat_intel.assess(finding)
+            await self._audit.record(AuditRecord(
+                finding_id=finding.finding_id, stage="threat_intel", payload=intel.model_dump()
+            ))
+            if intel.available:
+                techniques = ", ".join(
+                    f"{t.technique_id} ({t.tactic})" for t in intel.mitre_techniques if t.technique_id
+                ) or "none mapped"
+                _log("INTEL", f"{finding.finding_id}: ATT&CK: {techniques} | stage: "
+                              f"{intel.attack_lifecycle_stage or 'n/a'}")
+                _log("INTEL", f"{finding.finding_id}: {intel.intel_summary}")
 
         # 2 + 3. Policy decision and containment, per candidate action.
         for action in candidates:
@@ -120,6 +141,8 @@ class Orchestrator:
                     blast_radius=decision.blast_radius.value,
                     planned_api_calls=outcome.api_calls,
                     rollback_hint=outcome.rollback_hint,
+                    mitre_techniques=intel.technique_ids(),
+                    threat_intel_summary=intel.intel_summary,
                 ))
                 _log("CONTAIN", f"{finding.finding_id}: {outcome.detail}  [approval id: {req.request_id}]")
             else:

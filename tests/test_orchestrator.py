@@ -54,6 +54,25 @@ class FakePolicyEngine:
         return make_decision(action_class=action.action_class, disposition=self._disposition)
 
 
+class FakeThreatIntel:
+    """Records how many findings it was asked to enrich, and returns a fixed
+    assessment with MITRE techniques."""
+
+    def __init__(self) -> None:
+        self.assess_calls: list[str] = []
+
+    async def assess(self, finding: Finding):
+        from aegis.intel import MitreTechnique, ThreatIntelAssessment
+        self.assess_calls.append(finding.finding_id)
+        return ThreatIntelAssessment(
+            finding_id=finding.finding_id, available=True,
+            mitre_techniques=[MitreTechnique(technique_id="T1552.004",
+                                             technique_name="Private Keys", tactic="Credential Access")],
+            attack_lifecycle_stage="Exfiltration",
+            intel_summary="scripted intel summary",
+        )
+
+
 def _finding(provider: str = "kubernetes", finding_id: str = "f-1", severity: float = 8.0) -> Finding:
     return Finding(provider=provider, finding_id=finding_id, finding_type="k8s:test", severity=severity)
 
@@ -79,12 +98,12 @@ def _queued(finding: Finding) -> tuple[QueuedFinding, Callable[[], int]]:
     return QueuedFinding(finding=finding, _ack=ack), lambda: state["acked"]
 
 
-def _orchestrator(settings, triage, policy, *, approvals=None) -> tuple[Orchestrator, AuditLog]:
+def _orchestrator(settings, triage, policy, *, approvals=None, threat_intel=None) -> tuple[Orchestrator, AuditLog]:
     audit = AuditLog(settings.audit_log_path)
     adapter = FakeContainmentAdapter(provider="kubernetes")
     containment = ContainmentExecutor(settings, {"kubernetes": adapter, "aws": adapter})
     orch = Orchestrator(settings, triage=triage, policy=policy, containment=containment,
-                         audit=audit, approvals=approvals)
+                         audit=audit, approvals=approvals, threat_intel=threat_intel)
     return orch, audit
 
 
@@ -248,6 +267,75 @@ async def test_error_on_one_finding_does_not_block_the_next(settings) -> None:
     assert bad_acked() == 1
     assert good_acked() == 1
     assert orch.processed == 1  # only the good finding completed successfully
+
+
+async def test_threat_intel_enriches_actionable_finding_and_is_audited(settings) -> None:
+    candidate = _action("aws", ActionClass.DISABLE_ACCESS_KEY, "AKIA1")
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+    policy = FakePolicyEngine(disposition="requires_approval")
+    approvals = ApprovalStore(settings.approval_store_path)
+    intel = FakeThreatIntel()
+    orch, _ = _orchestrator(settings, triage, policy, approvals=approvals, threat_intel=intel)
+    item, _acked = _queued(_finding(finding_id="f-1"))
+
+    await _drain(orch, [item])
+
+    # Intel ran and was audited.
+    assert intel.assess_calls == ["f-1"]
+    records = [json.loads(l)["record"] for l in open(settings.audit_log_path) if l.strip()]
+    assert any(r["stage"] == "threat_intel" for r in records)
+
+    # And the MITRE context reached the approval request the human will see.
+    pending = approvals.list(status="pending")
+    assert pending[0].mitre_techniques == ["T1552.004"]
+    assert pending[0].threat_intel_summary == "scripted intel summary"
+
+
+async def test_threat_intel_not_called_for_non_actionable_finding(settings) -> None:
+    """Cost discipline: intel must not run on noise. A non-actionable finding
+    returns before the enrichment step."""
+    triage = FakeTriageEngine(_verdict("f-1", actionable=False), candidates=[])
+    intel = FakeThreatIntel()
+    orch, _ = _orchestrator(settings, triage, FakePolicyEngine("auto_execute"),
+                            threat_intel=intel)
+    item, _acked = _queued(_finding(finding_id="f-1"))
+
+    await _drain(orch, [item])
+
+    assert intel.assess_calls == []  # never invoked
+
+
+async def test_threat_intel_not_called_when_no_candidate_actions(settings) -> None:
+    """Actionable but no containment action available -> no approval to enrich,
+    so intel is skipped (same cost-scoping rationale)."""
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[])
+    intel = FakeThreatIntel()
+    orch, _ = _orchestrator(settings, triage, FakePolicyEngine("auto_execute"),
+                            threat_intel=intel)
+    item, _acked = _queued(_finding(finding_id="f-1"))
+
+    await _drain(orch, [item])
+
+    assert intel.assess_calls == []
+
+
+async def test_pipeline_works_without_a_threat_intel_agent(settings) -> None:
+    """threat_intel is optional -- the orchestrator must run identically when
+    it's None (backward compatible with pre-agent deployments)."""
+    candidate = _action("aws", ActionClass.DISABLE_ACCESS_KEY, "AKIA1")
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+    approvals = ApprovalStore(settings.approval_store_path)
+    orch, _ = _orchestrator(settings, triage, FakePolicyEngine("requires_approval"),
+                            approvals=approvals, threat_intel=None)
+    item, _acked = _queued(_finding(finding_id="f-1"))
+
+    await _drain(orch, [item])
+
+    pending = approvals.list(status="pending")
+    assert len(pending) == 1
+    assert pending[0].mitre_techniques == []  # no intel, empty advisory fields
+    records = [json.loads(l)["record"] for l in open(settings.audit_log_path) if l.strip()]
+    assert not any(r["stage"] == "threat_intel" for r in records)
 
 
 async def test_ack_failure_is_logged_not_raised(settings) -> None:

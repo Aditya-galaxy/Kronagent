@@ -39,6 +39,7 @@ from aegis.audit import AuditLog
 from aegis.config import Settings
 from aegis.containment import ContainmentExecutor
 from aegis.ingestion import FileReplaySource, QueuedFinding, SqsFindingSource
+from aegis.intel import ThreatIntelAgent
 from aegis.llm import GeminiTriageClient, LLMUnavailableError
 from aegis.orchestrator import Orchestrator, _log
 from aegis.policy import PolicyEngine
@@ -76,12 +77,13 @@ async def main(replay: list[tuple[str, str]]) -> int:
     audit = AuditLog(settings.audit_log_path)
     allowlist = AllowlistStore(settings.allowlist_store_path, seed=settings.auto_execute_allowlist)
     triage = TriageEngine(llm)
+    threat_intel = ThreatIntelAgent(llm)  # same LLM client; degrades if unavailable
     policy = PolicyEngine(settings, allowlist)
     containment = ContainmentExecutor(settings, build_containment_adapters(settings))
     approvals = ApprovalStore(settings.approval_store_path)
     orchestrator = Orchestrator(
         settings, triage=triage, policy=policy, containment=containment,
-        audit=audit, approvals=approvals,
+        audit=audit, approvals=approvals, threat_intel=threat_intel,
     )
 
     allowed = sorted(e.action_class for e in allowlist.list())
@@ -89,7 +91,8 @@ async def main(replay: list[tuple[str, str]]) -> int:
     _log("BOOT", f"mode: {'DRY-RUN (no execution)' if settings.dry_run else 'LIVE EXECUTION'}"
                  f" | kill_switch={settings.kill_switch}")
     _log("BOOT", f"auto-execute allowlist: {allowed or 'EMPTY (all actions need approval)'}")
-    _log("BOOT", f"triage: {llm_status}")
+    _log("BOOT", f"triage + threat-intel: {llm_status}")
+    _log("BOOT", "agents: Triage, Threat Intelligence (MITRE ATT&CK)")
 
     queue: "asyncio.Queue[QueuedFinding]" = asyncio.Queue(maxsize=256)
     stop = asyncio.Event()
