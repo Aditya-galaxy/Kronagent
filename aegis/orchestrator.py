@@ -14,9 +14,11 @@ from datetime import datetime, timezone
 
 from .approvals import ApprovalRequest, ApprovalStore
 from .audit import AuditLog
+from .commander import IncidentAssessment, IncidentCommanderAgent
 from .config import Settings
 from .containment import ContainmentExecutor
 from .correlation import CorrelationAgent, CorrelationAssessment, CorrelationMemory
+from .forensics import ForensicsAgent, ForensicsResult
 from .ingestion import QueuedFinding
 from .intel import ThreatIntelAgent, ThreatIntelAssessment
 from .model import Finding
@@ -45,6 +47,8 @@ class Orchestrator:
         approvals: ApprovalStore | None = None,
         threat_intel: ThreatIntelAgent | None = None,
         correlation: CorrelationAgent | None = None,
+        commander: IncidentCommanderAgent | None = None,
+        forensics: ForensicsAgent | None = None,
     ) -> None:
         self._settings = settings
         self._triage = triage
@@ -54,6 +58,8 @@ class Orchestrator:
         self._approvals = approvals
         self._threat_intel = threat_intel
         self._correlation = correlation
+        self._commander = commander
+        self._forensics = forensics
         # Session-scoped campaign memory: only maintained when a correlation
         # agent is present. Every finding is recorded (incl. non-actionable
         # noise, which is often a campaign's first stage).
@@ -133,6 +139,34 @@ class Orchestrator:
                 _log("CORRELATE", f"{finding.finding_id}: no campaign link found "
                                   f"across {len(prior)} prior finding(s)")
 
+        # 1d. Incident Commander (advisory synthesis). Turns the three specialist
+        # assessments into one incident narrative + priority + escalation signal.
+        # Same envelope: audited, threaded into the approval context, never
+        # touches the policy decision.
+        command = IncidentAssessment(finding_id=finding.finding_id, available=False)
+        if self._commander is not None:
+            command = await self._commander.assess(finding, verdict, intel, correlation)
+            await self._audit.record(AuditRecord(
+                finding_id=finding.finding_id, stage="command", payload=command.model_dump()
+            ))
+            if command.available:
+                flag = "⚠ ESCALATE NOW" if command.escalate_to_human_now else "queued"
+                _log("COMMAND", f"{finding.finding_id}: priority={command.priority or 'n/a'} "
+                                f"[{flag}] — {command.escalation_reason}")
+                _log("COMMAND", f"{finding.finding_id}: {command.incident_narrative}")
+
+        # 1e. Forensics (deterministic). Preserve evidence with chain of custody
+        # BEFORE any containment can alter the resource's state. Audited inside
+        # collect(); each evidence item is a tamper-evident custody record.
+        forensics = ForensicsResult(finding_id=finding.finding_id, provider=finding.provider)
+        if self._forensics is not None:
+            forensics = await self._forensics.collect(finding, self._audit)
+            if forensics.items:
+                _log("FORENSICS", f"{finding.finding_id}: preserved {len(forensics.items)} "
+                                  f"evidence item(s): {forensics.evidence_kinds()}")
+                for it in forensics.items:
+                    _log("FORENSICS", f"{finding.finding_id}:   {it.kind} custody={it.custody_sha256[:12]}…")
+
         # 2 + 3. Policy decision and containment, per candidate action.
         for action in candidates:
             decision = self._policy.decide(action, severity=verdict.severity)
@@ -177,6 +211,10 @@ class Orchestrator:
                     threat_intel_summary=intel.intel_summary,
                     related_finding_ids=correlation.related_finding_ids,
                     correlation_summary=correlation.correlation_summary,
+                    incident_priority=command.priority,
+                    escalated=command.escalate_to_human_now,
+                    incident_narrative=command.incident_narrative,
+                    evidence_collected=forensics.evidence_kinds(),
                 ))
                 _log("CONTAIN", f"{finding.finding_id}: {outcome.detail}  [approval id: {req.request_id}]")
             else:

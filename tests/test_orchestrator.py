@@ -99,13 +99,13 @@ def _queued(finding: Finding) -> tuple[QueuedFinding, Callable[[], int]]:
 
 
 def _orchestrator(settings, triage, policy, *, approvals=None, threat_intel=None,
-                  correlation=None) -> tuple[Orchestrator, AuditLog]:
+                  correlation=None, commander=None, forensics=None) -> tuple[Orchestrator, AuditLog]:
     audit = AuditLog(settings.audit_log_path)
     adapter = FakeContainmentAdapter(provider="kubernetes")
     containment = ContainmentExecutor(settings, {"kubernetes": adapter, "aws": adapter})
     orch = Orchestrator(settings, triage=triage, policy=policy, containment=containment,
                          audit=audit, approvals=approvals, threat_intel=threat_intel,
-                         correlation=correlation)
+                         correlation=correlation, commander=commander, forensics=forensics)
     return orch, audit
 
 
@@ -453,4 +453,137 @@ async def test_no_correlation_agent_leaves_pipeline_unchanged(settings) -> None:
 
     records = [json.loads(l)["record"] for l in open(settings.audit_log_path) if l.strip()]
     assert "correlation" not in [r["stage"] for r in records]
+    assert orch.processed == 1
+
+
+# --------------------------------------------------------------------------- #
+# Incident Commander + Forensics integration
+# --------------------------------------------------------------------------- #
+
+class FakeCommander:
+    """Records the specialist assessments it was handed, returns a fixed
+    escalated assessment."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    async def assess(self, finding, verdict, intel, correlation):
+        from aegis.commander import IncidentAssessment
+        self.calls.append((finding.finding_id, intel.available, correlation.available))
+        return IncidentAssessment(
+            finding_id=finding.finding_id, available=True,
+            incident_narrative="scripted narrative", priority="P1",
+            escalate_to_human_now=True, escalation_reason="scripted reason",
+        )
+
+
+class RecordingForensics:
+    """Records the order in which it was invoked relative to containment."""
+
+    def __init__(self, call_log: list[str]) -> None:
+        self._log = call_log
+
+    async def collect(self, finding, audit):
+        from aegis.forensics import EvidenceItem, ForensicsResult
+        self._log.append("forensics")
+        item = EvidenceItem(kind="aws.ebs.snapshot", target="i-1",
+                            description="d", collection_calls=["c"]).with_custody_hash()
+        return ForensicsResult(finding_id=finding.finding_id, provider=finding.provider,
+                               items=[item])
+
+
+async def test_commander_receives_all_specialist_assessments(settings) -> None:
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+    commander = FakeCommander()
+    orch, _ = _orchestrator(settings, triage, FakePolicyEngine("requires_approval"),
+                            threat_intel=FakeThreatIntel(), correlation=FakeCorrelation(),
+                            commander=commander)
+    item, _ = _queued(_finding(finding_id="f-1"))
+
+    await _drain(orch, [item])
+
+    assert len(commander.calls) == 1
+    fid, intel_available, _ = commander.calls[0]
+    assert fid == "f-1"
+    assert intel_available is True  # intel ran before the commander
+
+
+async def test_commander_assessment_is_audited_and_threaded_into_approval(settings) -> None:
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+    approvals = ApprovalStore(settings.approval_store_path)
+    orch, _ = _orchestrator(settings, triage, FakePolicyEngine("requires_approval"),
+                            approvals=approvals, commander=FakeCommander())
+    item, _ = _queued(_finding(finding_id="f-1"))
+
+    await _drain(orch, [item])
+
+    records = [json.loads(l)["record"] for l in open(settings.audit_log_path) if l.strip()]
+    assert "command" in [r["stage"] for r in records]
+
+    pending = approvals.list(status="pending")
+    assert pending[0].incident_priority == "P1"
+    assert pending[0].escalated is True
+    assert pending[0].incident_narrative == "scripted narrative"
+
+
+async def test_forensics_runs_before_containment(settings) -> None:
+    """The ordering guarantee: evidence must be preserved before containment can
+    alter or destroy the resource. If this inverts, forensics is worthless."""
+    call_log: list[str] = []
+
+    class OrderingAdapter(FakeContainmentAdapter):
+        async def perform(self, action):
+            call_log.append("containment")
+            return await super().perform(action)
+
+        def plan(self, action):
+            call_log.append("containment")
+            return super().plan(action)
+
+    audit = AuditLog(settings.audit_log_path)
+    adapter = OrderingAdapter(provider="kubernetes")
+    containment = ContainmentExecutor(settings, {"kubernetes": adapter, "aws": adapter})
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+
+    orch = Orchestrator(settings, triage=triage, policy=FakePolicyEngine("requires_approval"),
+                        containment=containment, audit=audit,
+                        forensics=RecordingForensics(call_log))
+    item, _ = _queued(_finding(finding_id="f-1"))
+
+    await _drain(orch, [item])
+
+    assert call_log, "neither stage ran"
+    assert call_log[0] == "forensics", f"forensics must precede containment, got {call_log}"
+
+
+async def test_evidence_kinds_are_threaded_into_approval_context(settings) -> None:
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+    approvals = ApprovalStore(settings.approval_store_path)
+    orch, _ = _orchestrator(settings, triage, FakePolicyEngine("requires_approval"),
+                            approvals=approvals, forensics=RecordingForensics([]))
+    item, _ = _queued(_finding(finding_id="f-1"))
+
+    await _drain(orch, [item])
+
+    pending = approvals.list(status="pending")
+    assert pending[0].evidence_collected == ["aws.ebs.snapshot"]
+
+
+async def test_pipeline_works_with_neither_new_agent(settings) -> None:
+    """Both are optional -- absent them, no command/forensics stages are audited
+    and everything else is unchanged."""
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+    orch, _ = _orchestrator(settings, triage, FakePolicyEngine("requires_approval"))
+    item, _ = _queued(_finding(finding_id="f-1"))
+
+    await _drain(orch, [item])
+
+    stages = [json.loads(l)["record"]["stage"] for l in open(settings.audit_log_path) if l.strip()]
+    assert "command" not in stages
+    assert "forensics" not in stages
     assert orch.processed == 1
