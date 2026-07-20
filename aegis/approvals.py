@@ -63,6 +63,18 @@ class ApprovalRequest(BaseModel):
     related_finding_ids: list[str] = Field(default_factory=list)
     correlation_summary: str = ""
 
+    # Advisory incident-command context (from the Incident Commander Agent): the
+    # synthesized priority and whether this was flagged for immediate paging.
+    # Advisory only — it prioritizes the human's queue, never the policy decision.
+    incident_priority: str = ""
+    escalated: bool = False
+    incident_narrative: str = ""
+
+    # Chain-of-custody evidence collected for this finding before containment
+    # (from the Forensics Agent), by evidence kind. Tells the human what forensic
+    # record was preserved.
+    evidence_collected: list[str] = Field(default_factory=list)
+
     # Decision state (mutated by an operator).
     status: Literal["pending", "approved", "denied", "executed", "failed"] = "pending"
     decided_by: Optional[str] = None
