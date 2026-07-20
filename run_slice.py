@@ -37,8 +37,10 @@ from aegis.allowlist import AllowlistStore
 from aegis.approvals import ApprovalStore
 from aegis.audit import AuditLog
 from aegis.config import Settings
+from aegis.commander import IncidentCommanderAgent
 from aegis.containment import ContainmentExecutor
 from aegis.correlation import CorrelationAgent
+from aegis.forensics import ForensicsAgent
 from aegis.ingestion import FileReplaySource, QueuedFinding, SqsFindingSource
 from aegis.intel import ThreatIntelAgent
 from aegis.llm import GeminiTriageClient, LLMUnavailableError
@@ -80,13 +82,15 @@ async def main(replay: list[tuple[str, str]]) -> int:
     triage = TriageEngine(llm)
     threat_intel = ThreatIntelAgent(llm)  # same LLM client; degrades if unavailable
     correlation = CorrelationAgent(llm)   # campaign correlation across the finding window
+    commander = IncidentCommanderAgent(llm)  # synthesis + escalation (advisory)
+    forensics = ForensicsAgent(settings)     # deterministic evidence + chain of custody
     policy = PolicyEngine(settings, allowlist)
     containment = ContainmentExecutor(settings, build_containment_adapters(settings))
     approvals = ApprovalStore(settings.approval_store_path)
     orchestrator = Orchestrator(
         settings, triage=triage, policy=policy, containment=containment,
         audit=audit, approvals=approvals, threat_intel=threat_intel,
-        correlation=correlation,
+        correlation=correlation, commander=commander, forensics=forensics,
     )
 
     allowed = sorted(e.action_class for e in allowlist.list())
@@ -94,8 +98,8 @@ async def main(replay: list[tuple[str, str]]) -> int:
     _log("BOOT", f"mode: {'DRY-RUN (no execution)' if settings.dry_run else 'LIVE EXECUTION'}"
                  f" | kill_switch={settings.kill_switch}")
     _log("BOOT", f"auto-execute allowlist: {allowed or 'EMPTY (all actions need approval)'}")
-    _log("BOOT", f"agents (triage + threat-intel + correlation): {llm_status}")
-    _log("BOOT", "agents: Triage, Threat Intelligence (MITRE ATT&CK)")
+    _log("BOOT", f"LLM agents (triage + threat-intel + correlation + commander): {llm_status}")
+    _log("BOOT", "deterministic agents: forensics (evidence + chain of custody)")
 
     queue: "asyncio.Queue[QueuedFinding]" = asyncio.Queue(maxsize=256)
     stop = asyncio.Event()
