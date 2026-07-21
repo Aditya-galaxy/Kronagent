@@ -53,6 +53,9 @@ pause() {
   else printf "\n${DIM}   ── press Enter to continue ──${RESET}"; read -r _ || true; fi
 }
 
+# Is the local SQS testbed (moto server) available?
+have_testbed() { "$PY" -c 'import moto.server, boto3' >/dev/null 2>&1; }
+
 # Pull one pending approval id for a given action class from the store.
 pending_id() {
   "$PY" - "$1" <<'PYEOF'
@@ -113,6 +116,57 @@ say "AUTO-eligible; destructive ones (terminate instance, delete pod, scale to"
 say "zero) are structurally routed to APPROVAL — no allowlist entry can override"
 say "that ceiling."
 run "$PY" run_slice.py
+pause 3
+
+# -------------------------------------------------------------------------- #
+banner "ACT 2.5 — Live async ingestion (real SQS stream, no cloud account)"
+if have_testbed; then
+  say "Acts so far replayed findings from disk. Real deployments ingest a LIVE,"
+  say "asynchronous stream: GuardDuty -> EventBridge -> SQS, long-polled by the"
+  say "platform. We prove that exact path here with a local SQS emulator (moto)"
+  say "— no AWS account, no Docker. (We chose moto over LocalStack, which went"
+  say "proprietary + auth-gated in March 2026. See testbed/README.md.)"
+  say ""
+  say "A background emulator streams EventBridge-wrapped findings into a real SQS"
+  say "queue; the platform long-polls and drives each one through the full pipeline."
+  export AWS_ACCESS_KEY_ID=testing AWS_SECRET_ACCESS_KEY=testing AWS_SESSION_TOKEN=testing
+  TB_PORT=5057
+  "$PY" testbed/sqs_emulator.py serve --port "$TB_PORT" > /tmp/aegis_demo_testbed.log 2>&1 &
+  TB_PID=$!
+  # Wait for the queue URL to appear.
+  TB_QURL=""
+  for _ in $(seq 1 30); do
+    TB_QURL="$(grep -m1 'Queue URL' /tmp/aegis_demo_testbed.log 2>/dev/null | awk '{print $NF}')"
+    [ -n "$TB_QURL" ] && break; sleep 0.3
+  done
+  if [ -n "$TB_QURL" ]; then
+    printf "\n${YELLOW}   \$ AEGIS_SQS_ENDPOINT_URL=http://localhost:%s AEGIS_SQS_QUEUE_URL=… run_slice.py${RESET}\n\n" "$TB_PORT"
+    # run_slice long-polls until interrupted; run it for a bounded window, then
+    # stop it the same way Ctrl-C would (it drains gracefully).
+    AEGIS_SQS_ENDPOINT_URL="http://localhost:$TB_PORT" AEGIS_SQS_QUEUE_URL="$TB_QURL" \
+      AEGIS_SQS_WAIT_SECONDS=2 \
+      AEGIS_AUDIT_PATH=/tmp/aegis_demo_live.jsonl \
+      AEGIS_APPROVAL_PATH=/tmp/aegis_demo_live_appr.json \
+      AEGIS_ALLOWLIST_PATH=/tmp/aegis_demo_live_allow.json \
+      "$PY" run_slice.py &
+    LIVE_PID=$!
+    sleep 12
+    kill -INT "$LIVE_PID" 2>/dev/null || true
+    # Bounded graceful shutdown: give the drain a few seconds, then hard-stop so
+    # the demo can never hang on an in-flight LLM call.
+    for _ in $(seq 1 12); do kill -0 "$LIVE_PID" 2>/dev/null || break; sleep 0.5; done
+    kill -9 "$LIVE_PID" 2>/dev/null || true
+    wait "$LIVE_PID" 2>/dev/null || true
+  else
+    say "(emulator did not start in time; skipping the live act)"
+  fi
+  kill "$TB_PID" 2>/dev/null || true; wait "$TB_PID" 2>/dev/null || true
+  rm -f /tmp/aegis_demo_testbed.log /tmp/aegis_demo_live*.jsonl /tmp/aegis_demo_live*.json
+else
+  say "Live-ingestion act skipped — the local SQS testbed isn't installed."
+  say "Enable it with:  python3 -m pip install -r testbed/requirements.txt"
+  say "Then re-run the demo to see the real GuardDuty -> EventBridge -> SQS path."
+fi
 pause 3
 
 # -------------------------------------------------------------------------- #
