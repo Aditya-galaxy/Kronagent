@@ -1,3 +1,4 @@
 -r requirements.txt
+-r testbed/requirements.txt   # moto[server] — for the live SQS integration tests
 pytest>=9.1
 pytest-asyncio>=1.4
