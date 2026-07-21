@@ -57,6 +57,16 @@ class Settings:
     # Name of the pre-provisioned, deny-all quarantine security group used for
     # EC2 isolation. Created once by ops, referenced here.
     quarantine_security_group_id: str = ""
+    # Optional SQS endpoint override. Empty = the real AWS endpoint. Set it to
+    # point the SQS ingestion at a local emulator (moto server / ElasticMQ) for
+    # the testbed, or at a VPC/PrivateLink SQS endpoint in production. This is
+    # the one knob that lets the *live* ingestion path run with no AWS account.
+    sqs_endpoint_url: str = ""
+    # SQS long-poll wait (seconds). 20 (the AWS max) is the right production
+    # default — fewer empty receives, lower cost. Lower it for fast shutdown
+    # responsiveness (an in-flight long-poll can't be interrupted by the stop
+    # signal, so this bounds shutdown latency) — the testbed/demo use ~2.
+    sqs_wait_seconds: int = 20
 
     # --- Kubernetes ---
     # Empty kubeconfig_path uses the default resolution (KUBECONFIG / ~/.kube/config
@@ -80,6 +90,8 @@ class Settings:
             ),
             aws_region=os.getenv("AWS_REGION", "us-east-1"),
             quarantine_security_group_id=os.getenv("AEGIS_QUARANTINE_SG_ID", ""),
+            sqs_endpoint_url=os.getenv("AEGIS_SQS_ENDPOINT_URL", ""),
+            sqs_wait_seconds=int(os.getenv("AEGIS_SQS_WAIT_SECONDS", "20")),
             kubeconfig_path=os.getenv("AEGIS_KUBECONFIG", ""),
             kube_context=os.getenv("AEGIS_KUBE_CONTEXT", ""),
             audit_log_path=os.getenv("AEGIS_AUDIT_PATH", "aegis_audit.jsonl"),

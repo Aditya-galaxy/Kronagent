@@ -102,17 +102,22 @@ class SqsFindingSource:
     _RECEIVE_MAX_BACKOFF = 30.0
 
     def __init__(self, queue_url: str, normalizer: Normalizer, *, region: str,
-                 wait_seconds: int = 20) -> None:
+                 wait_seconds: int = 20, endpoint_url: str = "") -> None:
         self._queue_url = queue_url
         self._normalizer = normalizer
         self._region = region
         self._wait_seconds = wait_seconds
+        # Empty => real AWS. Set to a local emulator (moto/ElasticMQ) for the
+        # testbed, or a VPC endpoint in production.
+        self._endpoint_url = endpoint_url or None
         self._sqs = None
 
     def _client(self):
         if self._sqs is None:
             import boto3  # local import: module stays importable without AWS
-            self._sqs = boto3.client("sqs", region_name=self._region)
+            self._sqs = boto3.client(
+                "sqs", region_name=self._region, endpoint_url=self._endpoint_url
+            )
         return self._sqs
 
     async def stream(self, queue: "asyncio.Queue[QueuedFinding]", stop: asyncio.Event) -> None:

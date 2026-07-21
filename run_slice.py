@@ -113,7 +113,8 @@ async def main(replay: list[tuple[str, str]]) -> int:
         _log("BOOT", f"ingestion: SQS long-poll {sqs_url} (provider={sqs_provider}, "
                      f"region {settings.aws_region})")
         source = SqsFindingSource(
-            sqs_url, NORMALIZERS[sqs_provider], region=settings.aws_region, wait_seconds=20
+            sqs_url, NORMALIZERS[sqs_provider], region=settings.aws_region,
+            wait_seconds=settings.sqs_wait_seconds, endpoint_url=settings.sqs_endpoint_url,
         )
         producer = asyncio.create_task(source.stream(queue, stop))
         live = True
