@@ -139,7 +139,7 @@ multi-agent rewrite.
    isolation. Real incidents are campaigns — the credential-exfil finding and the
    crypto-mining finding an hour later may be the same actor. This agent correlates
    across the audit history and asks "is this related to something we've already
-   seen." Needs memory/state (the audit log is the substrate), and it's where
+   seen." Needs memory/state (supported by both session-scoped rolling in-memory window and durable SQLite-backed correlation database store), and it's where
    multi-agent genuinely beats single-call triage.
 
 3. **Orchestrator Agent.** Only worth building *after* there are ≥2 intelligence
