@@ -84,6 +84,11 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        approval_path = os.getenv("AEGIS_APPROVAL_PATH", "aegis_approvals.json")
+        db_path = os.getenv("AEGIS_DB_PATH", "")
+        if not db_path and approval_path.endswith(".db"):
+            db_path = approval_path
+
         return cls(
             dry_run=_env_bool("AEGIS_DRY_RUN", True),
             kill_switch=_env_bool("AEGIS_KILL_SWITCH", False),
@@ -99,7 +104,7 @@ class Settings:
             kubeconfig_path=os.getenv("AEGIS_KUBECONFIG", ""),
             kube_context=os.getenv("AEGIS_KUBE_CONTEXT", ""),
             audit_log_path=os.getenv("AEGIS_AUDIT_PATH", "aegis_audit.jsonl"),
-            approval_store_path=os.getenv("AEGIS_APPROVAL_PATH", "aegis_approvals.json"),
+            approval_store_path=approval_path,
             allowlist_store_path=os.getenv("AEGIS_ALLOWLIST_PATH", "aegis_allowlist.json"),
-            db_path=os.getenv("AEGIS_DB_PATH", ""),
+            db_path=db_path,
         )
