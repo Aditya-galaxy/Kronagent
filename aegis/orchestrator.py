@@ -71,6 +71,9 @@ class Orchestrator:
         return self._processed
 
     async def _handle(self, finding: Finding) -> None:
+        from .sanitization import sanitize_finding
+        finding = sanitize_finding(finding)
+
         _log("INCIDENT", f"--- [{finding.provider}] {finding.finding_id} | "
                          f"{finding.finding_type} | severity={finding.severity} ---")
 
