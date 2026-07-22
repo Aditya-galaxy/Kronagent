@@ -76,3 +76,32 @@ automatically if `moto[server]` isn't installed, so the core suite is unaffected
 ```bash
 python3 -m pytest tests/test_sqs_integration.py -q
 ```
+
+---
+
+## Kubernetes Containment Staging Testbed
+
+For high-fidelity verification of Kubernetes containment actions (`ISOLATE_POD`), the testbed supports running inside a local **Kind** cluster with active packet-filtering CNI enforcement (**Calico**).
+
+This validates that the containment adapter successfully applies the label and creates the `NetworkPolicy` objects, and that traffic between an attacker client and a quarantined victim server is physically blocked.
+
+### Prerequisites
+*   Docker
+*   Kind (`brew install kind`)
+*   kubectl (`brew install kubernetes-cli`)
+
+### Run Automated Validation
+Run the self-contained validation script from the project root:
+```bash
+python3 testbed/validate_k8s_containment.py
+```
+
+This script will:
+1. Spin up a Kind cluster named `aegis-testbed` (disabling default `kindnet`).
+2. Apply the Calico CNI manifest.
+3. Deploy two test pods (`victim-server` and `attacker-client`).
+4. Validate that `attacker-client` can communicate with `victim-server`.
+5. Trigger `K8sContainmentAdapter.ISOLATE_POD` on `victim-server`.
+6. Assert that Calico CNI successfully blocks subsequent connections (queries time out).
+7. Clean up and delete the cluster.
+
