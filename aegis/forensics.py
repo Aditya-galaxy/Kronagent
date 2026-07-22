@@ -83,6 +83,12 @@ class EvidenceItem(BaseModel):
         digest = hashlib.sha256(manifest.encode("utf-8")).hexdigest()
         return self.model_copy(update={"custody_sha256": digest})
 
+    def verify_custody(self) -> bool:
+        """Returns True if the custody_sha256 matches the current manifest."""
+        manifest = json.dumps(self.custody_manifest(), sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(manifest.encode("utf-8")).hexdigest()
+        return self.custody_sha256 == digest
+
 
 class ForensicsResult(BaseModel):
     finding_id: str

@@ -210,3 +210,18 @@ async def test_live_mode_does_not_falsely_claim_collection(settings, audit_log) 
     result = await ForensicsAgent(live).collect(_aws_instance_finding(), audit_log)
     assert all(i.collected is False for i in result.items)
     assert any("not yet wired" in i.description for i in result.items)
+
+
+def test_evidence_item_custody_verification() -> None:
+    item = EvidenceItem(
+        kind="aws.ebs.snapshot",
+        target="i-12345",
+        description="EBS snapshot",
+    ).with_custody_hash()
+
+    assert item.verify_custody() is True
+
+    # Mutate the manifest data post-hash computation
+    item_tampered = item.model_copy(update={"target": "i-tampered"})
+    assert item_tampered.verify_custody() is False
+
