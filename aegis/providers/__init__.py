@@ -41,6 +41,7 @@ def build_containment_adapters(settings: Settings) -> dict[str, object]:
         aws.PROVIDER: aws.AwsContainmentAdapter(
             region=settings.aws_region,
             quarantine_security_group_id=settings.quarantine_security_group_id,
+            quarantine_nacl_id=settings.quarantine_nacl_id,
         ),
         k8s.PROVIDER: k8s.K8sContainmentAdapter(
             kubeconfig=settings.kubeconfig_path,
