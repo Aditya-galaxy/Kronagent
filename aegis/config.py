@@ -57,6 +57,8 @@ class Settings:
     # Name of the pre-provisioned, deny-all quarantine security group used for
     # EC2 isolation. Created once by ops, referenced here.
     quarantine_security_group_id: str = ""
+    # ID of the pre-provisioned, quarantine network ACL used for blocking IPs.
+    quarantine_nacl_id: str = ""
     # Optional SQS endpoint override. Empty = the real AWS endpoint. Set it to
     # point the SQS ingestion at a local emulator (moto server / ElasticMQ) for
     # the testbed, or at a VPC/PrivateLink SQS endpoint in production. This is
@@ -90,6 +92,7 @@ class Settings:
             ),
             aws_region=os.getenv("AWS_REGION", "us-east-1"),
             quarantine_security_group_id=os.getenv("AEGIS_QUARANTINE_SG_ID", ""),
+            quarantine_nacl_id=os.getenv("AEGIS_QUARANTINE_NACL_ID", ""),
             sqs_endpoint_url=os.getenv("AEGIS_SQS_ENDPOINT_URL", ""),
             sqs_wait_seconds=int(os.getenv("AEGIS_SQS_WAIT_SECONDS", "20")),
             kubeconfig_path=os.getenv("AEGIS_KUBECONFIG", ""),
