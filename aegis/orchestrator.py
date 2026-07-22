@@ -230,7 +230,7 @@ class Orchestrator:
         _log("INCIDENT", f"{finding.finding_id}: --- response complete ---")
         self._processed += 1
 
-    async def run(self, queue: "asyncio.Queue[QueuedFinding]", ingestion_done: asyncio.Event) -> None:
+    async def _worker(self, queue: "asyncio.Queue[QueuedFinding]", ingestion_done: asyncio.Event) -> None:
         while not (ingestion_done.is_set() and queue.empty()):
             try:
                 item = await asyncio.wait_for(queue.get(), timeout=1.0)
@@ -254,3 +254,15 @@ class Orchestrator:
                     _log("ERROR", f"{finding.finding_id}: ack failed (will redeliver) — "
                                   f"{type(exc).__name__}: {exc}")
                 queue.task_done()
+
+    async def run(self, queue: "asyncio.Queue[QueuedFinding]", ingestion_done: asyncio.Event) -> None:
+        max_workers = getattr(self._settings, "max_workers", 1)
+        if max_workers <= 1:
+            await self._worker(queue, ingestion_done)
+        else:
+            _log("ORCHESTRATOR", f"Starting parallel execution with {max_workers} worker tasks")
+            workers = [
+                asyncio.create_task(self._worker(queue, ingestion_done))
+                for _ in range(max_workers)
+            ]
+            await asyncio.gather(*workers)
