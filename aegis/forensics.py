@@ -43,6 +43,7 @@ from pydantic import BaseModel, Field
 
 from .audit import AuditLog
 from .config import Settings
+from .crypto import get_signer, Signer
 from .model import Finding
 from .schemas import AuditRecord
 
@@ -64,6 +65,7 @@ class EvidenceItem(BaseModel):
     collected_at: str = Field(default_factory=_now)
     collector: str = COLLECTOR
     custody_sha256: str = ""        # hash of the custody manifest (this record's identity)
+    custody_signature: str = ""     # cryptographic signature of custody_sha256
     artifact_sha256: str = ""       # hash of the collected artifact bytes, populated on live collection
 
     def custody_manifest(self) -> dict:
@@ -83,11 +85,29 @@ class EvidenceItem(BaseModel):
         digest = hashlib.sha256(manifest.encode("utf-8")).hexdigest()
         return self.model_copy(update={"custody_sha256": digest})
 
-    def verify_custody(self) -> bool:
-        """Returns True if the custody_sha256 matches the current manifest."""
+    def with_custody_signature(self, signer: Signer) -> "EvidenceItem":
+        import base64
+        item = self if self.custody_sha256 else self.with_custody_hash()
+        sig_bytes = signer.sign(item.custody_sha256.encode("utf-8"))
+        sig_b64 = base64.b64encode(sig_bytes).decode("utf-8")
+        return item.model_copy(update={"custody_signature": sig_b64})
+
+    def verify_custody(self, signer: Signer | None = None) -> bool:
+        """Returns True if the custody_sha256 matches the current manifest
+        and verifies the cryptographic signature if a signer is supplied."""
         manifest = json.dumps(self.custody_manifest(), sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(manifest.encode("utf-8")).hexdigest()
-        return self.custody_sha256 == digest
+        if self.custody_sha256 != digest:
+            return False
+
+        if signer is not None and self.custody_signature:
+            import base64
+            try:
+                sig_bytes = base64.b64decode(self.custody_signature)
+                return signer.verify(digest.encode("utf-8"), sig_bytes)
+            except Exception:
+                return False
+        return True
 
 
 class ForensicsResult(BaseModel):
@@ -177,8 +197,9 @@ class ForensicsAgent:
     """Plans evidence collection, records chain of custody into the audit log,
     and — when dry_run is off — performs the collection."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, signer: Signer | None = None) -> None:
         self._dry_run = settings.dry_run
+        self._signer = signer or get_signer(settings)
 
     async def collect(self, finding: Finding, audit: AuditLog) -> ForensicsResult:
         planner = _PLANNERS.get(finding.provider)
@@ -201,9 +222,10 @@ class ForensicsAgent:
 
         recorded: list[EvidenceItem] = []
         for item in deduped:
-            # Stamp the custody hash before anything else — it's the evidence's
+            # Stamp the custody hash and signature before anything else — it's the evidence's
             # identity and must be fixed at plan time, not after collection.
             item = item.with_custody_hash()
+            item = item.with_custody_signature(self._signer)
 
             if not self._dry_run:
                 # Real collection would run item.collection_calls here via the
@@ -233,6 +255,7 @@ class ForensicsAgent:
                     "collected_at": item.collected_at,
                     "collector": item.collector,
                     "custody_sha256": item.custody_sha256,
+                    "custody_signature": item.custody_signature,
                     "artifact_sha256": item.artifact_sha256,
                     "collection_calls": item.collection_calls,
                     "dry_run": self._dry_run,

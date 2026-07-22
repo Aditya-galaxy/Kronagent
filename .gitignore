@@ -8,6 +8,8 @@ aegis_audit.jsonl
 aegis_approvals.json
 aegis_allowlist.json
 *.jsonl
+*.pem
+*.db
 
 # Python
 __pycache__/

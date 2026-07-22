@@ -82,6 +82,7 @@ class Settings:
     allowlist_store_path: str = "aegis_allowlist.json"
     db_path: str = ""
     max_workers: int = 1
+    kms_key_id: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -109,4 +110,5 @@ class Settings:
             allowlist_store_path=os.getenv("AEGIS_ALLOWLIST_PATH", "aegis_allowlist.json"),
             db_path=db_path,
             max_workers=int(os.getenv("AEGIS_MAX_WORKERS", "1")),
+            kms_key_id=os.getenv("AEGIS_KMS_KEY_ID", ""),
         )
