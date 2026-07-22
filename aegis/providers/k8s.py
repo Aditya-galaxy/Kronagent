@@ -241,6 +241,30 @@ class K8sContainmentAdapter:
             return (f"pod {ns}/{t} deletion requested",
                     "controller reschedules; recreate bare pods from manifest")
 
-        # ISOLATE_POD needs a NetworkPolicy object; wire to your cluster's CNI
-        # (must enforce NetworkPolicy) before enabling real execution.
+        if ac == ActionClass.ISOLATE_POD:
+            core.patch_namespaced_pod(
+                t, ns, {"metadata": {"labels": {"aegis-quarantine": "true"}}}
+            )
+            from kubernetes import client
+            policy_name = self._DENY_ALL_NETPOL
+            policy = client.V1NetworkPolicy(
+                metadata=client.V1ObjectMeta(name=policy_name, namespace=ns),
+                spec=client.V1NetworkPolicySpec(
+                    pod_selector=client.V1LabelSelector(match_labels={"aegis-quarantine": "true"}),
+                    policy_types=["Ingress", "Egress"],
+                    ingress=[],
+                    egress=[]
+                )
+            )
+            try:
+                net.read_namespaced_network_policy(policy_name, ns)
+            except client.exceptions.ApiException as exc:
+                if exc.status == 404:
+                    net.create_namespaced_network_policy(ns, policy)
+                else:
+                    raise
+            return (
+                f"pod {ns}/{t} isolated with deny-all NetworkPolicy '{policy_name}'",
+                f"kubectl label pod {t} -n {ns} aegis-quarantine- ; kubectl delete networkpolicy {policy_name} -n {ns}"
+            )
         raise NotImplementedError(f"real k8s execution for {ac.value} not enabled in this slice")

@@ -204,9 +204,10 @@ def plan_aws_actions(finding: Finding) -> list[ProposedAction]:
 class AwsContainmentAdapter:
     provider = PROVIDER
 
-    def __init__(self, *, region: str, quarantine_security_group_id: str = "") -> None:
+    def __init__(self, *, region: str, quarantine_security_group_id: str = "", quarantine_nacl_id: str = "") -> None:
         self._region = region
         self._quarantine_sg = quarantine_security_group_id
+        self._quarantine_nacl = quarantine_nacl_id
         self._ec2 = None
         self._iam = None
 
@@ -249,10 +250,14 @@ class AwsContainmentAdapter:
                 f"isolate instance {t} into quarantine SG {sg}",
             )
         if ac == ActionClass.BLOCK_IP:
+            nacl = self._quarantine_nacl or "<AEGIS_QUARANTINE_NACL_ID unset>"
             return (
-                [f"ec2.create_network_acl_entry(quarantine NACL, deny {t}/32, ingress+egress)"],
-                f"ec2.delete_network_acl_entry(quarantine NACL, the deny rule for {t}/32)",
-                f"block remote IP {t} at the quarantine NACL",
+                [
+                    f"ec2.create_network_acl_entry(NetworkAclId='{nacl}', RuleNumber=<ingress_rule>, Protocol='-1', RuleAction='deny', Egress=False, CidrBlock='{t}/32')",
+                    f"ec2.create_network_acl_entry(NetworkAclId='{nacl}', RuleNumber=<egress_rule>, Protocol='-1', RuleAction='deny', Egress=True, CidrBlock='{t}/32')",
+                ],
+                f"ec2.delete_network_acl_entry(NetworkAclId='{nacl}', RuleNumber=<ingress_rule>, Egress=False); ec2.delete_network_acl_entry(NetworkAclId='{nacl}', RuleNumber=<egress_rule>, Egress=True)",
+                f"block remote IP {t} at the quarantine NACL {nacl}",
             )
         if ac == ActionClass.REVOKE_ROLE_SESSIONS:
             return (
@@ -298,6 +303,64 @@ class AwsContainmentAdapter:
             ec2.modify_instance_attribute(InstanceId=t, Groups=[self._quarantine_sg])
             return (f"instance {t} moved to quarantine SG {self._quarantine_sg} (was {original})",
                     f"ec2.modify_instance_attribute(InstanceId='{t}', Groups={original})")
+        if ac == ActionClass.BLOCK_IP:
+            if not self._quarantine_nacl:
+                raise RuntimeError("AEGIS_QUARANTINE_NACL_ID is not configured")
+            ec2 = self._ec2_client()
+            desc = ec2.describe_network_acls(NetworkAclIds=[self._quarantine_nacl])
+            entries = desc["NetworkAcls"][0]["Entries"]
+            ingress_nums = {e["RuleNumber"] for e in entries if not e["Egress"]}
+            egress_nums = {e["RuleNumber"] for e in entries if e["Egress"]}
+
+            ingress_rule = next(i for i in range(100, 32767) if i not in ingress_nums)
+            egress_rule = next(i for i in range(100, 32767) if i not in egress_nums)
+
+            ec2.create_network_acl_entry(
+                NetworkAclId=self._quarantine_nacl,
+                RuleNumber=ingress_rule,
+                Protocol="-1",
+                RuleAction="deny",
+                Egress=False,
+                CidrBlock=f"{t}/32",
+            )
+            ec2.create_network_acl_entry(
+                NetworkAclId=self._quarantine_nacl,
+                RuleNumber=egress_rule,
+                Protocol="-1",
+                RuleAction="deny",
+                Egress=True,
+                CidrBlock=f"{t}/32",
+            )
+            return (
+                f"remote IP {t} blocked at quarantine NACL {self._quarantine_nacl} (ingress rule {ingress_rule}, egress rule {egress_rule})",
+                f"ec2.delete_network_acl_entry(NetworkAclId='{self._quarantine_nacl}', RuleNumber={ingress_rule}, Egress=False); "
+                f"ec2.delete_network_acl_entry(NetworkAclId='{self._quarantine_nacl}', RuleNumber={egress_rule}, Egress=True)"
+            )
+        if ac == ActionClass.REVOKE_ROLE_SESSIONS:
+            from datetime import datetime, timezone
+            now_str = datetime.now(timezone.utc).isoformat()
+            policy_doc = json.dumps({
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {
+                        "DateLessThan": {
+                            "aws:TokenIssueTime": now_str
+                        }
+                    }
+                }]
+            }, separators=(",", ":"))
+            self._iam_client().put_role_policy(
+                RoleName=t,
+                PolicyName="aegis-revoke-sessions",
+                PolicyDocument=policy_doc
+            )
+            return (
+                f"active sessions revoked for role {t} (issued before {now_str})",
+                f"iam.delete_role_policy(RoleName='{t}', PolicyName='aegis-revoke-sessions')"
+            )
         if ac == ActionClass.TERMINATE_INSTANCE:
             self._ec2_client().terminate_instances(InstanceIds=[t])
             return (f"instance {t} termination requested", "IRREVERSIBLE — restore from AMI/snapshot")
