@@ -95,6 +95,47 @@ class ApprovalRequest(BaseModel):
 class ApprovalStore:
     def __init__(self, path: str) -> None:
         self._path = path
+        self._is_db = path.endswith(".db")
+        if self._is_db:
+            import sqlite3
+            conn = sqlite3.connect(self._path)
+            try:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS approvals (
+                        request_id TEXT PRIMARY KEY,
+                        created_at TEXT NOT NULL,
+                        finding_id TEXT NOT NULL,
+                        finding_type TEXT NOT NULL,
+                        severity REAL NOT NULL,
+                        provider TEXT NOT NULL,
+                        action_class TEXT NOT NULL,
+                        target TEXT NOT NULL,
+                        rationale TEXT NOT NULL,
+                        parameters TEXT NOT NULL, -- JSON dict
+                        policy_reason TEXT NOT NULL,
+                        reversible INTEGER NOT NULL, -- 0 or 1
+                        blast_radius TEXT NOT NULL,
+                        planned_api_calls TEXT NOT NULL, -- JSON list
+                        rollback_hint TEXT NOT NULL,
+                        mitre_techniques TEXT NOT NULL, -- JSON list
+                        threat_intel_summary TEXT NOT NULL,
+                        related_finding_ids TEXT NOT NULL, -- JSON list
+                        correlation_summary TEXT NOT NULL,
+                        incident_priority TEXT NOT NULL,
+                        escalated INTEGER NOT NULL, -- 0 or 1
+                        incident_narrative TEXT NOT NULL,
+                        evidence_collected TEXT NOT NULL, -- JSON list
+                        status TEXT NOT NULL,
+                        decided_by TEXT,
+                        decided_at TEXT,
+                        decision_reason TEXT,
+                        execution_detail TEXT
+                    )
+                """)
+                conn.commit()
+            finally:
+                conn.close()
 
     def _read_all(self) -> dict[str, dict]:
         if not os.path.exists(self._path):
@@ -121,29 +162,214 @@ class ApprovalStore:
                 os.remove(tmp)
 
     def add(self, request: ApprovalRequest) -> ApprovalRequest:
-        data = self._read_all()
-        data[request.request_id] = request.model_dump()
-        self._write_all(data)
-        return request
+        if not self._is_db:
+            data = self._read_all()
+            data[request.request_id] = request.model_dump()
+            self._write_all(data)
+            return request
+
+        import sqlite3
+        conn = sqlite3.connect(self._path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO approvals (
+                    request_id, created_at, finding_id, finding_type, severity,
+                    provider, action_class, target, rationale, parameters,
+                    policy_reason, reversible, blast_radius, planned_api_calls,
+                    rollback_hint, mitre_techniques, threat_intel_summary,
+                    related_finding_ids, correlation_summary, incident_priority,
+                    escalated, incident_narrative, evidence_collected, status,
+                    decided_by, decided_at, decision_reason, execution_detail
+                ) VALUES (
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?
+                )
+                """,
+                (
+                    request.request_id,
+                    request.created_at,
+                    request.finding_id,
+                    request.finding_type,
+                    request.severity,
+                    request.provider,
+                    request.action_class.value,
+                    request.target,
+                    request.rationale,
+                    json.dumps(request.parameters),
+                    request.policy_reason,
+                    1 if request.reversible else 0,
+                    request.blast_radius,
+                    json.dumps(request.planned_api_calls),
+                    request.rollback_hint,
+                    json.dumps(request.mitre_techniques),
+                    request.threat_intel_summary,
+                    json.dumps(request.related_finding_ids),
+                    request.correlation_summary,
+                    request.incident_priority,
+                    1 if request.escalated else 0,
+                    request.incident_narrative,
+                    json.dumps(request.evidence_collected),
+                    request.status,
+                    request.decided_by,
+                    request.decided_at,
+                    request.decision_reason,
+                    request.execution_detail,
+                )
+            )
+            conn.commit()
+            return request
+        finally:
+            conn.close()
 
     def get(self, request_id: str) -> Optional[ApprovalRequest]:
-        data = self._read_all()
-        raw = data.get(request_id)
-        return ApprovalRequest.model_validate(raw) if raw else None
+        if not self._is_db:
+            data = self._read_all()
+            raw = data.get(request_id)
+            return ApprovalRequest.model_validate(raw) if raw else None
+
+        import sqlite3
+        conn = sqlite3.connect(self._path)
+        try:
+            cursor = conn.cursor()
+            columns = [
+                "request_id", "created_at", "finding_id", "finding_type", "severity",
+                "provider", "action_class", "target", "rationale", "parameters",
+                "policy_reason", "reversible", "blast_radius", "planned_api_calls",
+                "rollback_hint", "mitre_techniques", "threat_intel_summary",
+                "related_finding_ids", "correlation_summary", "incident_priority",
+                "escalated", "incident_narrative", "evidence_collected", "status",
+                "decided_by", "decided_at", "decision_reason", "execution_detail"
+            ]
+            cursor.execute(f"SELECT {','.join(columns)} FROM approvals WHERE request_id = ?", (request_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            
+            data = dict(zip(columns, row))
+            data["parameters"] = json.loads(data["parameters"])
+            data["reversible"] = bool(data["reversible"])
+            data["planned_api_calls"] = json.loads(data["planned_api_calls"])
+            data["mitre_techniques"] = json.loads(data["mitre_techniques"])
+            data["related_finding_ids"] = json.loads(data["related_finding_ids"])
+            data["escalated"] = bool(data["escalated"])
+            data["evidence_collected"] = json.loads(data["evidence_collected"])
+            return ApprovalRequest.model_validate(data)
+        finally:
+            conn.close()
 
     def list(self, *, status: Optional[str] = None) -> list[ApprovalRequest]:
-        data = self._read_all()
-        items = [ApprovalRequest.model_validate(v) for v in data.values()]
-        if status:
-            items = [i for i in items if i.status == status]
-        return sorted(items, key=lambda r: r.created_at)
+        if not self._is_db:
+            data = self._read_all()
+            items = [ApprovalRequest.model_validate(v) for v in data.values()]
+            if status:
+                items = [i for i in items if i.status == status]
+            return sorted(items, key=lambda r: r.created_at)
+
+        import sqlite3
+        conn = sqlite3.connect(self._path)
+        try:
+            cursor = conn.cursor()
+            columns = [
+                "request_id", "created_at", "finding_id", "finding_type", "severity",
+                "provider", "action_class", "target", "rationale", "parameters",
+                "policy_reason", "reversible", "blast_radius", "planned_api_calls",
+                "rollback_hint", "mitre_techniques", "threat_intel_summary",
+                "related_finding_ids", "correlation_summary", "incident_priority",
+                "escalated", "incident_narrative", "evidence_collected", "status",
+                "decided_by", "decided_at", "decision_reason", "execution_detail"
+            ]
+            if status:
+                cursor.execute(f"SELECT {','.join(columns)} FROM approvals WHERE status = ? ORDER BY created_at ASC", (status,))
+            else:
+                cursor.execute(f"SELECT {','.join(columns)} FROM approvals ORDER BY created_at ASC")
+            
+            rows = cursor.fetchall()
+            items = []
+            for row in rows:
+                data = dict(zip(columns, row))
+                data["parameters"] = json.loads(data["parameters"])
+                data["reversible"] = bool(data["reversible"])
+                data["planned_api_calls"] = json.loads(data["planned_api_calls"])
+                data["mitre_techniques"] = json.loads(data["mitre_techniques"])
+                data["related_finding_ids"] = json.loads(data["related_finding_ids"])
+                data["escalated"] = bool(data["escalated"])
+                data["evidence_collected"] = json.loads(data["evidence_collected"])
+                items.append(ApprovalRequest.model_validate(data))
+            return items
+        finally:
+            conn.close()
 
     def update(self, request: ApprovalRequest) -> None:
-        data = self._read_all()
-        if request.request_id not in data:
-            raise KeyError(request.request_id)
-        data[request.request_id] = request.model_dump()
-        self._write_all(data)
+        if not self._is_db:
+            data = self._read_all()
+            if request.request_id not in data:
+                raise KeyError(request.request_id)
+            data[request.request_id] = request.model_dump()
+            self._write_all(data)
+            return
+
+        import sqlite3
+        conn = sqlite3.connect(self._path)
+        try:
+            cursor = conn.cursor()
+            # Verify request exists
+            cursor.execute("SELECT 1 FROM approvals WHERE request_id = ?", (request.request_id,))
+            if not cursor.fetchone():
+                raise KeyError(request.request_id)
+            
+            cursor.execute(
+                """
+                UPDATE approvals SET
+                    created_at = ?, finding_id = ?, finding_type = ?, severity = ?,
+                    provider = ?, action_class = ?, target = ?, rationale = ?, parameters = ?,
+                    policy_reason = ?, reversible = ?, blast_radius = ?, planned_api_calls = ?,
+                    rollback_hint = ?, mitre_techniques = ?, threat_intel_summary = ?,
+                    related_finding_ids = ?, correlation_summary = ?, incident_priority = ?,
+                    escalated = ?, incident_narrative = ?, evidence_collected = ?, status = ?,
+                    decided_by = ?, decided_at = ?, decision_reason = ?, execution_detail = ?
+                WHERE request_id = ?
+                """,
+                (
+                    request.created_at,
+                    request.finding_id,
+                    request.finding_type,
+                    request.severity,
+                    request.provider,
+                    request.action_class.value,
+                    request.target,
+                    request.rationale,
+                    json.dumps(request.parameters),
+                    request.policy_reason,
+                    1 if request.reversible else 0,
+                    request.blast_radius,
+                    json.dumps(request.planned_api_calls),
+                    request.rollback_hint,
+                    json.dumps(request.mitre_techniques),
+                    request.threat_intel_summary,
+                    json.dumps(request.related_finding_ids),
+                    request.correlation_summary,
+                    request.incident_priority,
+                    1 if request.escalated else 0,
+                    request.incident_narrative,
+                    json.dumps(request.evidence_collected),
+                    request.status,
+                    request.decided_by,
+                    request.decided_at,
+                    request.decision_reason,
+                    request.execution_detail,
+                    request.request_id,
+                )
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
 
 def now_iso() -> str:

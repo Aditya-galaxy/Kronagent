@@ -75,19 +75,123 @@ class FindingSummary(BaseModel):
 class CorrelationMemory:
     """Bounded rolling window of recent finding summaries."""
 
-    def __init__(self, maxlen: int = DEFAULT_WINDOW) -> None:
-        self._items: Deque[FindingSummary] = deque(maxlen=maxlen)
+    def __init__(self, db_path: str = "", maxlen: int = DEFAULT_WINDOW) -> None:
+        self._db_path = db_path
+        self._maxlen = maxlen
+        if self._db_path:
+            import sqlite3
+            conn = sqlite3.connect(self._db_path)
+            try:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS correlation_findings (
+                        finding_id TEXT PRIMARY KEY,
+                        provider TEXT NOT NULL,
+                        finding_type TEXT NOT NULL,
+                        severity REAL NOT NULL,
+                        title TEXT NOT NULL,
+                        remote_ip TEXT,
+                        resource_ids TEXT NOT NULL, -- JSON list
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                conn.commit()
+            finally:
+                conn.close()
+        else:
+            self._items: Deque[FindingSummary] = deque(maxlen=maxlen)
 
     def add(self, finding: Finding) -> None:
-        self._items.append(FindingSummary.from_finding(finding))
+        if not self._db_path:
+            self._items.append(FindingSummary.from_finding(finding))
+            return
+
+        import json
+        import sqlite3
+        conn = sqlite3.connect(self._db_path)
+        try:
+            cursor = conn.cursor()
+            summary = FindingSummary.from_finding(finding)
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO correlation_findings 
+                (finding_id, provider, finding_type, severity, title, remote_ip, resource_ids)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    summary.finding_id,
+                    summary.provider,
+                    summary.finding_type,
+                    summary.severity,
+                    summary.title,
+                    summary.remote_ip,
+                    json.dumps(summary.resource_ids),
+                )
+            )
+            # Enforce rolling window: keep only the newest maxlen entries
+            cursor.execute("SELECT COUNT(*) FROM correlation_findings")
+            count = cursor.fetchone()[0]
+            if count > self._maxlen:
+                cursor.execute(
+                    "SELECT rowid FROM correlation_findings ORDER BY rowid DESC LIMIT 1 OFFSET ?",
+                    (self._maxlen - 1,)
+                )
+                res = cursor.fetchone()
+                if res:
+                    boundary = res[0]
+                    cursor.execute("DELETE FROM correlation_findings WHERE rowid < ?", (boundary,))
+            conn.commit()
+        finally:
+            conn.close()
 
     def prior_to(self, finding_id: str) -> list[FindingSummary]:
         """All remembered findings except the one being assessed (so an in-flight
         finding already recorded doesn't 'correlate with itself')."""
-        return [s for s in self._items if s.finding_id != finding_id]
+        if not self._db_path:
+            return [s for s in self._items if s.finding_id != finding_id]
+
+        import json
+        import sqlite3
+        conn = sqlite3.connect(self._db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT finding_id, provider, finding_type, severity, title, remote_ip, resource_ids 
+                FROM correlation_findings 
+                WHERE finding_id != ? 
+                ORDER BY rowid ASC 
+                LIMIT ?
+                """,
+                (finding_id, self._maxlen)
+            )
+            rows = cursor.fetchall()
+            return [
+                FindingSummary(
+                    finding_id=row[0],
+                    provider=row[1],
+                    finding_type=row[2],
+                    severity=row[3],
+                    title=row[4],
+                    remote_ip=row[5],
+                    resource_ids=json.loads(row[6]),
+                )
+                for row in rows
+            ]
+        finally:
+            conn.close()
 
     def __len__(self) -> int:
-        return len(self._items)
+        if not self._db_path:
+            return len(self._items)
+        import sqlite3
+        conn = sqlite3.connect(self._db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM correlation_findings")
+            return cursor.fetchone()[0]
+        finally:
+            conn.close()
 
 
 class RelatedFinding(BaseModel):

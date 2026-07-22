@@ -63,7 +63,7 @@ class Orchestrator:
         # Session-scoped campaign memory: only maintained when a correlation
         # agent is present. Every finding is recorded (incl. non-actionable
         # noise, which is often a campaign's first stage).
-        self._memory = CorrelationMemory() if correlation is not None else None
+        self._memory = CorrelationMemory(settings.db_path) if correlation is not None else None
         self._processed = 0
 
     @property
