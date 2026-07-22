@@ -80,7 +80,7 @@ class CorrelationMemory:
         self._maxlen = maxlen
         if self._db_path:
             import sqlite3
-            conn = sqlite3.connect(self._db_path)
+            conn = sqlite3.connect(self._db_path, timeout=30.0)
             try:
                 cursor = conn.cursor()
                 cursor.execute("""
@@ -108,7 +108,7 @@ class CorrelationMemory:
 
         import json
         import sqlite3
-        conn = sqlite3.connect(self._db_path)
+        conn = sqlite3.connect(self._db_path, timeout=30.0)
         try:
             cursor = conn.cursor()
             summary = FindingSummary.from_finding(finding)
@@ -152,7 +152,7 @@ class CorrelationMemory:
 
         import json
         import sqlite3
-        conn = sqlite3.connect(self._db_path)
+        conn = sqlite3.connect(self._db_path, timeout=30.0)
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -185,7 +185,7 @@ class CorrelationMemory:
         if not self._db_path:
             return len(self._items)
         import sqlite3
-        conn = sqlite3.connect(self._db_path)
+        conn = sqlite3.connect(self._db_path, timeout=30.0)
         try:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM correlation_findings")

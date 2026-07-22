@@ -81,6 +81,7 @@ class Settings:
     approval_store_path: str = "aegis_approvals.json"
     allowlist_store_path: str = "aegis_allowlist.json"
     db_path: str = ""
+    max_workers: int = 1
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -107,4 +108,5 @@ class Settings:
             approval_store_path=approval_path,
             allowlist_store_path=os.getenv("AEGIS_ALLOWLIST_PATH", "aegis_allowlist.json"),
             db_path=db_path,
+            max_workers=int(os.getenv("AEGIS_MAX_WORKERS", "1")),
         )

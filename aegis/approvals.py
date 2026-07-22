@@ -98,7 +98,7 @@ class ApprovalStore:
         self._is_db = path.endswith(".db")
         if self._is_db:
             import sqlite3
-            conn = sqlite3.connect(self._path)
+            conn = sqlite3.connect(self._path, timeout=30.0)
             try:
                 cursor = conn.cursor()
                 cursor.execute("""
@@ -169,7 +169,7 @@ class ApprovalStore:
             return request
 
         import sqlite3
-        conn = sqlite3.connect(self._path)
+        conn = sqlite3.connect(self._path, timeout=30.0)
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -235,7 +235,7 @@ class ApprovalStore:
             return ApprovalRequest.model_validate(raw) if raw else None
 
         import sqlite3
-        conn = sqlite3.connect(self._path)
+        conn = sqlite3.connect(self._path, timeout=30.0)
         try:
             cursor = conn.cursor()
             columns = [
@@ -273,7 +273,7 @@ class ApprovalStore:
             return sorted(items, key=lambda r: r.created_at)
 
         import sqlite3
-        conn = sqlite3.connect(self._path)
+        conn = sqlite3.connect(self._path, timeout=30.0)
         try:
             cursor = conn.cursor()
             columns = [
@@ -316,7 +316,7 @@ class ApprovalStore:
             return
 
         import sqlite3
-        conn = sqlite3.connect(self._path)
+        conn = sqlite3.connect(self._path, timeout=30.0)
         try:
             cursor = conn.cursor()
             # Verify request exists
