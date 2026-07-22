@@ -23,7 +23,7 @@ no heavy deps" ethos (lazy `boto3`, graceful degradation). So:
 | **moto server** (default) | `pip install` | none | real SQS endpoint, long-poll + delete | ✅ default — pure-Python, zero-auth, no Docker |
 | **ElasticMQ** (Docker) | `docker compose up` | none | SQS-native, production-like | ✅ documented alt for higher fidelity / non-Python producers |
 | LocalStack | Docker + token | **token** | broad AWS | ❌ went proprietary/auth-gated Mar 2026 |
-| moto in-process (`@mock_aws`) | `pip install` | none | in-process only | ❌ can't serve a *separate* long-running process |
+| **moto in-process (`@mock_aws`)** | `pip install` | none | in-process only | ✅ Used in `tests/test_provider_containment_moto.py` to verify boto3 API state changes (NACLs, IAM) without real AWS credentials |
 
 Sources: [OSS alternatives comparison](https://codenote.net/en/posts/localstack-archived-oss-alternatives-comparison/) ·
 [Testing AWS in Python without LocalStack (2026)](https://dev.to/peytongreen_dev/localstack-killed-its-free-tier-heres-how-to-test-aws-in-python-for-free-in-2026-12me) ·
