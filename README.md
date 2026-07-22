@@ -118,6 +118,9 @@ python3 run_slice.py kubernetes samples/k8s_audit_events.json   # replay one pro
 
 python3 promote.py list                                 # inspect the auto-execute allowlist
 python3 approve.py list                                 # inspect pending human approvals
+python3 run_compliance_report.py                        # generate EU AI Act Article 12/14 report
+python3 run_compliance_report.py --markdown-output rep.md # export a styled Markdown manifest
+
 ```
 
 Everything above runs in **dry-run** by default (`AEGIS_DRY_RUN=true`) — no
@@ -175,15 +178,13 @@ python3 approve.py approve <request-id> --by alice --reason "confirmed compromis
 ```bash
 export AEGIS_DRY_RUN=false
 export AEGIS_QUARANTINE_SG_ID=sg-...        # required for EC2 isolation
+export AEGIS_QUARANTINE_NACL_ID=acl-...      # required for BLOCK_IP (EC2 Network ACL)
+export AEGIS_DB_PATH=aegis.db               # optional: sqlite database for persistent store/memory
 export AEGIS_KUBECONFIG=/path/to/kubeconfig # required for Kubernetes containment
 export AEGIS_SQS_QUEUE_URL=https://sqs...   # your real GuardDuty -> EventBridge -> SQS queue
 ```
 
-Only action classes present in the (audited, promote.py-managed) allowlist —
-and classified reversible/single-resource by the policy engine — will ever
-execute unattended. Everything else routes to `approve.py` regardless of
-`AEGIS_DRY_RUN`. See [`deploy/README.md`](deploy/README.md) for the AWS IAM
-policy and SQS/EventBridge wiring.
+Only action classes present in the (audited, `promote.py`-managed) allowlist — and classified reversible/single-resource by the policy engine — will ever execute unattended. Everything else routes to `approve.py` regardless of `AEGIS_DRY_RUN`. Persistent storage can be enabled by specifying `AEGIS_DB_PATH` pointing to a SQLite database file, transitioning the approvals queue and correlation memory from file-based/in-memory scopes. See [`deploy/README.md`](deploy/README.md) for the AWS IAM policy and SQS/EventBridge wiring.
 
 ---
 
@@ -204,20 +205,22 @@ aegis/
   policy.py            graduated-autonomy decision engine
   allowlist.py         audited, live-reloadable earn-trust store
   containment.py       provider-agnostic execution dispatch
-  approvals.py         human approval workflow
+  approvals.py         human approval workflow (supports SQLite/JSON)
   audit.py             hash-chained, tamper-evident audit log
+  compliance.py        EU AI Act compliance reporting engine
   ingestion.py         file replay + live SQS ingestion
   config.py            all safety-critical settings (fail-safe defaults)
 
 run_slice.py           runnable entry point
 promote.py             earn-trust governance CLI
 approve.py             human approval CLI
+run_compliance_report.py  compliance reporting CLI
 demo.sh                narrated live terminal demo
 
 testbed/               local SQS emulator (no AWS account, no Docker)
 deploy/                IAM policies, EventBridge/SQS wiring docs
 samples/                real-schema sample findings (AWS + Kubernetes)
-tests/                 167 tests, offline, ~2s
+tests/                 176 tests, offline, ~2s
 ```
 
 ---
@@ -229,35 +232,20 @@ python3 -m pip install -r requirements-dev.txt
 python3 -m pytest -q
 ```
 
-167 tests, fully offline (no network, no cloud/cluster credentials, no LLM
-calls), running in a couple of seconds. Coverage highlights: the policy
-engine's safety ceiling (destructive actions proven to never auto-execute,
-even if allowlisted), the audit log's tamper-evidence (mutation-tested, not
-just asserted), the approval-provider round-trip, forensics-before-containment
-ordering (mutation-tested), and live ingestion against a real SQS server.
+176 tests, fully offline (no network, no cloud/cluster credentials, no LLM calls), running in a couple of seconds. Coverage highlights: the policy engine's safety ceiling (destructive actions proven to never auto-execute, even if allowlisted), the audit log's tamper-evidence (mutation-tested, not just asserted), the approval-provider round-trip, forensics-before-containment ordering (mutation-tested), live ingestion against a real SQS server, SQLite-backed storage persistence, and EU AI Act compliance report generation.
 
 ---
 
 ## Documentation
 
-- [`agent-team-architecture.md`](agent-team-architecture.md) — why each agent
-  is (or isn't) an LLM, and the safety envelope every agent operates inside
-- [`research.md`](research.md) — market landscape, competitive analysis, and
-  the strategic thesis
-- [`deploy/README.md`](deploy/README.md) — IAM policy, EventBridge/SQS wiring
-  for a real AWS deployment
-- [`testbed/README.md`](testbed/README.md) — local SQS emulation, and why
-  moto over LocalStack
+- [`agent-team-architecture.md`](agent-team-architecture.md) — why each agent is (or isn't) an LLM, and the safety envelope every agent operates inside
+- [`research.md`](research.md) — market landscape, competitive analysis, and the strategic thesis
+- [`deploy/README.md`](deploy/README.md) — IAM policy, EventBridge/SQS wiring for a real AWS deployment
+- [`testbed/README.md`](testbed/README.md) — local SQS emulation, and why moto over LocalStack
 - [`SECURITY.md`](SECURITY.md) — vulnerability reporting
 
 ---
 
 ## Status
 
-This is a vertical slice, not a production platform. Detection, triage,
-policy, approval, governance, and audit are real and tested end-to-end
-against both AWS and Kubernetes. Containment execution has real code paths
-for every action class but has not yet run against a live cloud account or
-cluster — every live run to date has been in dry-run. Scale (durable
-multi-tenant ingestion, SIEM export) and additional providers are not yet
-started.
+This is a functional vertical slice. Detection, triage, policy, approval, governance, and audit are real and tested end-to-end against both AWS and Kubernetes. Containment execution contains fully implemented, live client code paths for key containment actions: `BLOCK_IP` (AWS Network ACLs), `REVOKE_ROLE_SESSIONS` (AWS IAM), and `ISOLATE_POD` (Kubernetes NetworkPolicies). The platform also supports database persistence for campaign memory and approvals, and features automated EU AI Act compliance report exporting. Other actions run in plan-only/dry-run unless custom adapters are added.

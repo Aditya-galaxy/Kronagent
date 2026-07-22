@@ -109,12 +109,12 @@ Honest inventory, not aspirational:
 |---|---|---|
 | Detection/triage (deterministic + LLM) | ✅ Real, tested, fast (~2s/call on `gemini-3.1-flash-lite`) | Table stakes — every competitor has this |
 | Graduated-autonomy policy engine | ✅ Real, tested — reversibility/blast-radius gated | **This is the differentiator.** Matches the stated 2026 industry-consensus architecture that most competitors *don't* actually implement |
-| Real containment execution (dry-run + live paths) | ✅ Real boto3 IAM/EC2 paths, concrete plan + rollback for every action | Rare — most "AI SOC" vendors stop before this |
+| Real containment execution (dry-run + live paths) | ✅ Real boto3 (IAM/EC2) and Kubernetes (CoreV1/NetworkingV1) live client paths, concrete plan + rollback for every action | Rare — most "AI SOC" vendors stop before this |
 | Audited approval workflow | ✅ Real, hash-chained, attributable | Aligns with EU AI Act Art. 12/14 — a live compliance angle competitors don't emphasize |
 | Governance / earn-trust promotion CLI | ✅ Real, audited, live-reloadable | Not something I've seen any competitor describe explicitly |
-| Multi-cloud / multi-source | 🟡 In progress — AWS done, Kubernetes provider being extracted now | Necessary to be credible outside AWS-only shops; none of the surveyed competitors are single-cloud, so this closes a real gap, doesn't create a new one |
-| Live production execution (unattended, on a real account) | ⬜ Never run — blocked on a throwaway AWS account | The one thing standing between "architecturally sound" and "provably works" |
-| Scale (Kafka-class ingestion, multi-tenant, SIEM integration) | ⬜ Not started | Needed for enterprise; not needed to validate the wedge |
+| Multi-cloud / multi-source | ✅ AWS GuardDuty and Kubernetes audit providers fully complete and integrated | Necessary to be credible outside AWS-only shops |
+| Compliance reporting | ✅ Automated EU AI Act Article 12/14 compliance report exporter from hash-chained audit log | Solidifies the governance and audit story for enterprise readiness |
+| Live production execution (unattended, on a real account) | ⬜ Blocked on staging cloud/cluster infrastructure | The next credibility milestone |
 
 **The honest gap:** everything above the execution layer is real and tested; nothing
 has run unattended against live production yet. That's the next credibility
