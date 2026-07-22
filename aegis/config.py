@@ -80,6 +80,7 @@ class Settings:
     audit_log_path: str = "aegis_audit.jsonl"
     approval_store_path: str = "aegis_approvals.json"
     allowlist_store_path: str = "aegis_allowlist.json"
+    db_path: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -100,4 +101,5 @@ class Settings:
             audit_log_path=os.getenv("AEGIS_AUDIT_PATH", "aegis_audit.jsonl"),
             approval_store_path=os.getenv("AEGIS_APPROVAL_PATH", "aegis_approvals.json"),
             allowlist_store_path=os.getenv("AEGIS_ALLOWLIST_PATH", "aegis_allowlist.json"),
+            db_path=os.getenv("AEGIS_DB_PATH", ""),
         )
