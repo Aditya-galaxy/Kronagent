@@ -178,17 +178,14 @@ envelope. Those stay deterministic — that's the safety ceiling.
 
 ---
 
-## 6. Recommendation
+## 6. Current Status & Next Steps
 
-Build the **Threat Intelligence Agent first** — MITRE ATT&CK mapping + IOC
-enrichment. It's the highest capability-per-risk step: it visibly upgrades every
-incident from "alert" to "assessment," it's the same bounded structured-output
-shape as the triage we already run (so it reuses the LLM client, the parallel-safe
-pattern, and the prompt-injection discipline wholesale), and it adds *zero* new
-execution authority — it only enriches the record and the human's approval context.
-That makes it the safest possible place to prove the "team of agents" thesis is
-real capability and not theater, before we build the orchestrator that makes it a
-literal team.
+The orchestrator and the multi-agent SOC team (Triage, Threat Intel, Correlation, Incident Commander, and Forensics) have been fully implemented, integrated, and verified end-to-end. Campaign memory and approvals are backed by persistent storage databases, and compliance manifests (for EU AI Act Articles 12/14) are generated automatically from the cryptographically verified audit log.
+
+Moving forward, development is focused on the next architectural milestones:
+- **Telemetry Pre-processing/Sanitization:** Implement validation layers to detect and strip potential prompt injection sequences from incoming alert telemetry.
+- **Durable Infrastructure Testbed:** Deploy local cluster/cloud sandboxes (Kind/LocalStack) to validate active containment execution paths against running workloads.
+- **KMS/HSM Cryptographic Signatures:** Harden the append-only audit log and forensic custody chains with hardware security module or KMS keys to establish an immutable, verifiable chain of custody.
 
 ---
 
