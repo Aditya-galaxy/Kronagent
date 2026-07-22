@@ -189,6 +189,24 @@ Moving forward, development is focused on the next architectural milestones:
 
 ---
 
+## 7. Distributed Scaling & Enterprise Architecture
+
+To run Aegis in high-volume enterprise production environments, the architecture transitions from a single, sequential loop to a distributed, decoupled worker model:
+
+```mermaid
+graph LR
+    SQS[AWS SQS / K8s Webhook] -->|Ingest| Worker[Distributed Workers]
+    Worker -->|Triage & Intel| DynamoDB[(Durable Audit & Approval Store)]
+    Worker -->|Query Campaigns| Redis[(Redis Campaign Memory)]
+    Worker -->|Execute| Target[Target AWS/K8s APIs]
+```
+
+### Architectural Pillars
+*   **Decoupled Distributed Workers:** Long-polling ingestion processes run independently and push findings to task queues (e.g. Celery or custom Redis/SQS workers) to scale execution processing concurrently.
+*   **Durable State Persistence:** Moves the operational stores (Approvals, Allowlists) and rolling correlation memories into shared state databases (such as DynamoDB/PostgreSQL and Redis/SQLite), preventing state synchronization issues across multiple cluster replicas.
+
+---
+
 ## Sources
 
 - [Agentic SOC: Multi-agent orchestration — EY](https://www.ey.com/en_in/insights/ai/agentic-soc-multi-agent-orchestration-for-next-gen-security-operations)
