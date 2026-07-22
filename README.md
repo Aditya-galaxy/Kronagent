@@ -249,3 +249,23 @@ python3 -m pytest -q
 ## Status
 
 This is a functional vertical slice. Detection, triage, policy, approval, governance, and audit are real and tested end-to-end against both AWS and Kubernetes. Containment execution contains fully implemented, live client code paths for key containment actions: `BLOCK_IP` (AWS Network ACLs), `REVOKE_ROLE_SESSIONS` (AWS IAM), and `ISOLATE_POD` (Kubernetes NetworkPolicies). The platform also supports database persistence for campaign memory and approvals, and features automated EU AI Act compliance report exporting. Other actions run in plan-only/dry-run unless custom adapters are added.
+
+---
+
+## Roadmap & Future Work
+
+Based on Aegis's design milestones (detailed in `aegis_next_steps.md`), the following architectural and security developments are planned:
+
+### 1. Staging Testbed (Minikube + LocalStack)
+*   **Simulation Environment:** Construct a local cluster and cloud sandbox environment (Minikube/Kind + LocalStack) to dry-run containment actions against real simulated resources before promotion to staging cloud accounts.
+
+### 2. Distributed Workers & Scaling
+*   **Task Queues:** Decouple ingestion from orchestration by introducing a distributed worker queue architecture (e.g., Celery/async worker pools) to process telemetry streams concurrently.
+
+### 3. Adversarial AI Hardening
+*   **Sanitization Layer:** Put a preprocessing layer in place to sanitize IP and log headers before feeding prompts to LLM agents, shielding the triage/intel processes from prompt injection jailbreaks.
+*   **KMS-Signed Forensics:** Secure the forensic custody hashes by signing them with an AWS KMS or HSM private key, allowing immediate detection of post-record tampering.
+
+### 4. Continuous Red Teaming
+*   **Benign Alert Drift:** Introduce a simulator that occasionally fires fake alerts to verify the policy engine, allowlist, and operator approval routing remain correctly calibrated and live.
+
