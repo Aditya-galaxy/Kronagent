@@ -100,7 +100,25 @@ _ACTION_PROPERTIES: dict[ActionClass, dict] = {
         "blast_radius": BlastRadius.SINGLE_RESOURCE,
         "destructive": True,
     },
+
+    # --- GCP ---
+    ActionClass.DISABLE_SERVICE_ACCOUNT_KEY: {
+        "reversible": True,
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": False,
+    },
+    ActionClass.DISABLE_SERVICE_ACCOUNT: {
+        "reversible": True,
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": False,
+    },
+    ActionClass.STOP_VM_INSTANCE: {
+        "reversible": True,
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": False,
+    },
 }
+
 
 
 class PolicyEngine:

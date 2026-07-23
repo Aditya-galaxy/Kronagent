@@ -49,6 +49,47 @@ _SYSTEM = (
 )
 
 
+class StixIndicator(BaseModel):
+    id: str
+    name: str
+    pattern: str          # e.g. "[ipv4-addr:value = '99.99.99.99']"
+    description: str
+    confidence: int = 80
+    valid_from: str = ""
+
+
+class StixFeedDb:
+    """In-memory STIX/TAXII threat intelligence indicator matching database."""
+
+    def __init__(self, indicators: list[StixIndicator] | None = None) -> None:
+        self.indicators = indicators if indicators is not None else [
+            StixIndicator(
+                id="indicator--99999999",
+                name="Known Malicious C2 IP",
+                pattern="[ipv4-addr:value = '99.99.99.99']",
+                description="Known Command & Control IP associated with APT-29 threat actor infrastructure.",
+                confidence=95,
+            ),
+            StixIndicator(
+                id="indicator--88888888",
+                name="Compromised Service Account Key",
+                pattern="[gcp-sa-key:id = 'key-12345']",
+                description="Exfiltrated service account key detected on public pastebin.",
+                confidence=90,
+            ),
+        ]
+
+    def match(self, finding: Finding) -> list[StixIndicator]:
+        matches = []
+        for ind in self.indicators:
+            if finding.remote_ip and finding.remote_ip in ind.pattern:
+                matches.append(ind)
+            for res in finding.resources:
+                if res.id in ind.pattern:
+                    matches.append(ind)
+        return matches
+
+
 class MitreTechnique(BaseModel):
     technique_id: str = Field(description="MITRE ATT&CK technique ID, e.g. T1552.005. Empty if none applies.")
     technique_name: str = Field(description="Human-readable technique name.")
@@ -56,8 +97,7 @@ class MitreTechnique(BaseModel):
 
 
 class ThreatIntelAssessment(BaseModel):
-    """The internal, provider-neutral threat-intel record. `available=False` means
-    the LLM couldn't produce an assessment; every other field is then empty."""
+    """The internal, provider-neutral threat-intel record."""
 
     finding_id: str
     available: bool
@@ -65,6 +105,7 @@ class ThreatIntelAssessment(BaseModel):
     attack_lifecycle_stage: str = ""     # e.g. "Initial Access", "Exfiltration"
     ioc_assessment: str = ""             # analyst reasoning about the observed IOCs
     intel_summary: str = ""              # 1-2 sentence characterization for the record
+    stix_matches: list[StixIndicator] = Field(default_factory=list)
 
     def technique_ids(self) -> list[str]:
         return [t.technique_id for t in self.mitre_techniques if t.technique_id]
@@ -90,11 +131,21 @@ class _LLMIntelOutput(BaseModel):
 
 
 class ThreatIntelAgent:
-    def __init__(self, llm: GeminiTriageClient | None) -> None:
+    def __init__(self, llm: GeminiTriageClient | None, stix_db: StixFeedDb | None = None) -> None:
         self._llm = llm
+        self._stix_db = stix_db if stix_db is not None else StixFeedDb()
 
     async def assess(self, finding: Finding) -> ThreatIntelAssessment:
+        stix_matches = self._stix_db.match(finding)
+
         if self._llm is None:
+            if stix_matches:
+                return ThreatIntelAssessment(
+                    finding_id=finding.finding_id,
+                    available=True,
+                    intel_summary=f"STIX threat intel indicator match: {stix_matches[0].name}",
+                    stix_matches=stix_matches,
+                )
             return ThreatIntelAssessment(finding_id=finding.finding_id, available=False)
 
         from .sanitization import sanitize_finding
@@ -121,7 +172,12 @@ class ThreatIntelAgent:
                 system=_SYSTEM, prompt=prompt, schema=_LLMIntelOutput
             )
         except (LLMUnavailableError, Exception):  # noqa: BLE001 - enrichment is best-effort
-            return ThreatIntelAssessment(finding_id=finding.finding_id, available=False)
+            return ThreatIntelAssessment(
+                finding_id=finding.finding_id,
+                available=bool(stix_matches),
+                stix_matches=stix_matches,
+                intel_summary=f"STIX threat intel indicator match: {stix_matches[0].name}" if stix_matches else ""
+            )
 
         return ThreatIntelAssessment(
             finding_id=finding.finding_id,
@@ -130,4 +186,6 @@ class ThreatIntelAgent:
             attack_lifecycle_stage=out.attack_lifecycle_stage,
             ioc_assessment=out.ioc_assessment,
             intel_summary=out.intel_summary,
+            stix_matches=stix_matches,
         )
+
