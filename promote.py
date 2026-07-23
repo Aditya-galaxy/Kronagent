@@ -25,13 +25,38 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 
 from aegis.allowlist import AllowlistStore
 from aegis.audit import AuditLog
 from aegis.config import Settings
+from aegis.identity import AuthContext, AuthorizationError, Permission, resolve_actor
 from aegis.policy import PolicyEngine
-from aegis.schemas import ActionClass
+from aegis.schemas import ActionClass, AuditRecord
+
+
+def _resolve(settings: Settings, audit: AuditLog, args: argparse.Namespace,
+             required: Permission) -> AuthContext:
+    """Resolve + authorize the acting operator; audit + exit(4) on failure."""
+    try:
+        return resolve_actor(
+            registry_path=settings.operator_registry_path,
+            required=required,
+            by=getattr(args, "by", None),
+            operator_id=getattr(args, "as_operator", None),
+            token=getattr(args, "token", None) or os.getenv("AEGIS_OPERATOR_TOKEN"),
+        )
+    except AuthorizationError as exc:
+        asyncio.run(audit.record(AuditRecord(
+            finding_id="_governance", stage="access_denied",
+            payload={"command": args.command, "required": required.value,
+                     "action_class": getattr(args, "action_class", None),
+                     "operator_id": getattr(args, "as_operator", None) or getattr(args, "by", None),
+                     "error": str(exc)},
+        )))
+        print(f"ACCESS DENIED: {exc}", file=sys.stderr)
+        raise SystemExit(4)
 
 
 def _parse_action_class(raw: str) -> ActionClass:
@@ -59,11 +84,13 @@ def cmd_list(store: AllowlistStore, settings: Settings) -> int:
     return 0
 
 
-def cmd_add(store: AllowlistStore, audit: AuditLog, settings: Settings, args: argparse.Namespace) -> int:
+def cmd_add(store: AllowlistStore, audit: AuditLog, settings: Settings,
+            actor: AuthContext, args: argparse.Namespace) -> int:
     ac = _parse_action_class(args.action_class)
     policy = PolicyEngine(settings, store)
-    entry = asyncio.run(store.add(ac, by=args.by, reason=args.reason, audit=audit))
-    print(f"Promoted {entry.action_class} to autonomous execution (by {entry.added_by}).")
+    entry = asyncio.run(store.add(ac, by=actor.operator_id, reason=args.reason, audit=audit,
+                                  actor_fields=actor.audit_fields()))
+    print(f"Promoted {entry.action_class} to autonomous execution (by {actor.label}).")
     if not policy.is_auto_eligible(ac):
         print(f"  ⚠ WARNING: {ac.value} is classified destructive or wide-blast-radius by the "
               f"policy engine — it will still route to human approval regardless of this "
@@ -71,11 +98,13 @@ def cmd_add(store: AllowlistStore, audit: AuditLog, settings: Settings, args: ar
     return 0
 
 
-def cmd_remove(store: AllowlistStore, audit: AuditLog, args: argparse.Namespace) -> int:
+def cmd_remove(store: AllowlistStore, audit: AuditLog, actor: AuthContext,
+               args: argparse.Namespace) -> int:
     ac = _parse_action_class(args.action_class)
-    existed = asyncio.run(store.remove(ac, by=args.by, reason=args.reason, audit=audit))
+    existed = asyncio.run(store.remove(ac, by=actor.operator_id, reason=args.reason, audit=audit,
+                                       actor_fields=actor.audit_fields()))
     if existed:
-        print(f"Demoted {ac.value} — now requires human approval again.")
+        print(f"Demoted {ac.value} (by {actor.label}) — now requires human approval again.")
     else:
         print(f"{ac.value} was not on the allowlist (no-op, still recorded for the audit trail).")
     return 0
@@ -91,23 +120,33 @@ def main() -> int:
 
     sub.add_parser("list", help="show the current auto-execute allowlist")
 
+    # Governance is the most consequential action in the system, so it requires
+    # the PROMOTE permission (admin) in enforced mode. In unauthenticated mode
+    # (no registry) it falls back to free-text --by, audited as unverified.
+    def _add_identity(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--by", help="operator identity, unauthenticated mode (audited)")
+        p.add_argument("--as", dest="as_operator", help="authenticated operator id (enforced mode)")
+        p.add_argument("--token", help="operator token (or set AEGIS_OPERATOR_TOKEN)")
+
     p_add = sub.add_parser("add", help="promote an action class to autonomous execution")
     p_add.add_argument("action_class")
-    p_add.add_argument("--by", required=True, help="operator identity (audited)")
+    _add_identity(p_add)
     p_add.add_argument("--reason", required=True, help="why this class has earned trust (audited)")
 
     p_rm = sub.add_parser("remove", help="demote an action class back to requiring approval")
     p_rm.add_argument("action_class")
-    p_rm.add_argument("--by", required=True, help="operator identity (audited)")
+    _add_identity(p_rm)
     p_rm.add_argument("--reason", required=True, help="why this class is being demoted (audited)")
 
     args = parser.parse_args()
     if args.command == "list":
         return cmd_list(store, settings)
     if args.command == "add":
-        return cmd_add(store, audit, settings, args)
+        actor = _resolve(settings, audit, args, Permission.PROMOTE)
+        return cmd_add(store, audit, settings, actor, args)
     if args.command == "remove":
-        return cmd_remove(store, audit, args)
+        actor = _resolve(settings, audit, args, Permission.PROMOTE)
+        return cmd_remove(store, audit, actor, args)
     return 1
 
 

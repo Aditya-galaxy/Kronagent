@@ -87,7 +87,8 @@ class AllowlistStore:
 
     # --- write path: operator-driven, always audited ---
     async def add(
-        self, action_class: ActionClass, *, by: str, reason: str, audit: AuditLog
+        self, action_class: ActionClass, *, by: str, reason: str, audit: AuditLog,
+        actor_fields: Optional[dict] = None,
     ) -> AllowlistEntry:
         entry = AllowlistEntry(action_class=action_class.value, added_by=by, reason=reason)
         data = self._read_all()
@@ -99,12 +100,14 @@ class AllowlistStore:
             payload={
                 "decision": "allowlist_add", "action_class": action_class.value,
                 "by": by, "reason": reason, "already_present": already_present,
+                **(actor_fields or {}),
             },
         ))
         return entry
 
     async def remove(
-        self, action_class: ActionClass, *, by: str, reason: str, audit: AuditLog
+        self, action_class: ActionClass, *, by: str, reason: str, audit: AuditLog,
+        actor_fields: Optional[dict] = None,
     ) -> bool:
         data = self._read_all()
         existed = data.pop(action_class.value, None) is not None
@@ -115,6 +118,7 @@ class AllowlistStore:
             payload={
                 "decision": "allowlist_remove", "action_class": action_class.value,
                 "by": by, "reason": reason, "existed": existed,
+                **(actor_fields or {}),
             },
         ))
         return existed

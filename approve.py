@@ -22,14 +22,39 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 
 from aegis.approvals import ApprovalStore, now_iso
 from aegis.audit import AuditLog
 from aegis.config import Settings
 from aegis.containment import ContainmentExecutor
+from aegis.identity import AuthContext, AuthorizationError, Permission, resolve_actor
 from aegis.providers import build_containment_adapters
 from aegis.schemas import AuditRecord, BlastRadius, PolicyDecision
+
+
+def _resolve(settings: Settings, audit: AuditLog, args: argparse.Namespace,
+             required: Permission) -> AuthContext:
+    """Resolve + authorize the acting operator. On failure, audit the denied
+    attempt (a security event) and raise SystemExit(4)."""
+    try:
+        return resolve_actor(
+            registry_path=settings.operator_registry_path,
+            required=required,
+            by=getattr(args, "by", None),
+            operator_id=getattr(args, "as_operator", None),
+            token=getattr(args, "token", None) or os.getenv("AEGIS_OPERATOR_TOKEN"),
+        )
+    except AuthorizationError as exc:
+        asyncio.run(audit.record(AuditRecord(
+            finding_id=getattr(args, "request_id", "_access"), stage="access_denied",
+            payload={"command": args.command, "required": required.value,
+                     "operator_id": getattr(args, "as_operator", None) or getattr(args, "by", None),
+                     "error": str(exc)},
+        )))
+        print(f"ACCESS DENIED: {exc}", file=sys.stderr)
+        raise SystemExit(4)
 
 
 def _fmt(r) -> str:
@@ -71,7 +96,8 @@ def cmd_show(store: ApprovalStore, args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_deny(store: ApprovalStore, audit: AuditLog, args: argparse.Namespace) -> int:
+def cmd_deny(store: ApprovalStore, audit: AuditLog, actor: AuthContext,
+             args: argparse.Namespace) -> int:
     r = store.get(args.request_id)
     if r is None:
         print(f"No such request: {args.request_id}", file=sys.stderr)
@@ -80,22 +106,23 @@ def cmd_deny(store: ApprovalStore, audit: AuditLog, args: argparse.Namespace) ->
         print(f"Request {r.request_id} is '{r.status}', not pending — cannot deny.", file=sys.stderr)
         return 2
     r.status = "denied"
-    r.decided_by = args.by
+    r.decided_by = actor.operator_id
     r.decided_at = now_iso()
     r.decision_reason = args.reason
     store.update(r)
     asyncio.run(audit.record(AuditRecord(
         finding_id=r.finding_id, stage="approval",
         payload={"request_id": r.request_id, "decision": "denied",
-                 "by": args.by, "reason": args.reason,
-                 "action_class": r.action_class.value, "target": r.target},
+                 "reason": args.reason,
+                 "action_class": r.action_class.value, "target": r.target,
+                 **actor.audit_fields()},
     )))
-    print(f"Denied {r.request_id} ({r.action_class.value} on {r.target}) — recorded.")
+    print(f"Denied {r.request_id} ({r.action_class.value} on {r.target}) by {actor.label} — recorded.")
     return 0
 
 
 def cmd_approve(store: ApprovalStore, audit: AuditLog, settings: Settings,
-                args: argparse.Namespace) -> int:
+                actor: AuthContext, args: argparse.Namespace) -> int:
     r = store.get(args.request_id)
     if r is None:
         print(f"No such request: {args.request_id}", file=sys.stderr)
@@ -113,7 +140,7 @@ def cmd_approve(store: ApprovalStore, audit: AuditLog, settings: Settings,
     decision = PolicyDecision(
         action_class=r.action_class,
         disposition="auto_execute",
-        reason=f"human-approved by {args.by}: {args.reason}",
+        reason=f"human-approved by {actor.operator_id}: {args.reason}",
         reversible=r.reversible,
         blast_radius=BlastRadius(r.blast_radius),
     )
@@ -125,8 +152,9 @@ def cmd_approve(store: ApprovalStore, audit: AuditLog, settings: Settings,
         await audit.record(AuditRecord(
             finding_id=r.finding_id, stage="approval",
             payload={"request_id": r.request_id, "decision": "approved",
-                     "by": args.by, "reason": args.reason,
-                     "action_class": r.action_class.value, "target": r.target},
+                     "reason": args.reason,
+                     "action_class": r.action_class.value, "target": r.target,
+                     **actor.audit_fields()},
         ))
         outcome = await containment.execute(action, decision)
         await audit.record(AuditRecord(
@@ -137,7 +165,7 @@ def cmd_approve(store: ApprovalStore, audit: AuditLog, settings: Settings,
 
     outcome = asyncio.run(_run())
 
-    r.decided_by = args.by
+    r.decided_by = actor.operator_id
     r.decided_at = now_iso()
     r.decision_reason = args.reason
     r.execution_detail = outcome.detail
@@ -150,7 +178,7 @@ def cmd_approve(store: ApprovalStore, audit: AuditLog, settings: Settings,
         r.status = "approved"
     store.update(r)
 
-    print(f"Approved {r.request_id} by {args.by}.")
+    print(f"Approved {r.request_id} by {actor.label}.")
     print(f"  {outcome.detail}")
     print(f"  rollback: {outcome.rollback_hint}")
     if r.status == "approved":
@@ -173,15 +201,22 @@ def main() -> int:
     p_show = sub.add_parser("show", help="show one request in full")
     p_show.add_argument("request_id")
 
+    # Identity flags shared by the mutating commands. In unauthenticated mode
+    # (no registry) pass --by. In enforced mode (registry configured) pass
+    # --as <operator_id> and a token (--token or AEGIS_OPERATOR_TOKEN).
+    def _add_identity(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--by", help="operator identity, unauthenticated mode (audited)")
+        p.add_argument("--as", dest="as_operator", help="authenticated operator id (enforced mode)")
+        p.add_argument("--token", help="operator token (or set AEGIS_OPERATOR_TOKEN)")
+        p.add_argument("--reason", required=True, help="justification (audited)")
+
     p_appr = sub.add_parser("approve", help="authorize and execute an action")
     p_appr.add_argument("request_id")
-    p_appr.add_argument("--by", required=True, help="operator identity (audited)")
-    p_appr.add_argument("--reason", required=True, help="justification (audited)")
+    _add_identity(p_appr)
 
     p_deny = sub.add_parser("deny", help="reject an action")
     p_deny.add_argument("request_id")
-    p_deny.add_argument("--by", required=True, help="operator identity (audited)")
-    p_deny.add_argument("--reason", required=True, help="justification (audited)")
+    _add_identity(p_deny)
 
     args = parser.parse_args()
     if args.command == "list":
@@ -189,9 +224,11 @@ def main() -> int:
     if args.command == "show":
         return cmd_show(store, args)
     if args.command == "approve":
-        return cmd_approve(store, audit, settings, args)
+        actor = _resolve(settings, audit, args, Permission.APPROVE)
+        return cmd_approve(store, audit, settings, actor, args)
     if args.command == "deny":
-        return cmd_deny(store, audit, args)
+        actor = _resolve(settings, audit, args, Permission.APPROVE)
+        return cmd_deny(store, audit, actor, args)
     return 1
 
 
