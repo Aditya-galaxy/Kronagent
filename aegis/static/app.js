@@ -4,6 +4,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // State management
     const state = {
         activeTab: "overview",
+        activeTenant: "default",
         status: {},
         metrics: {},
         approvals: [],
@@ -16,6 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
         navItems: document.querySelectorAll(".nav-item"),
         tabContents: document.querySelectorAll(".tab-content"),
         pageTitle: document.getElementById("page-title"),
+        tenantSelect: document.getElementById("tenant-select"),
         
         // Status panel
         dryRun: document.getElementById("status-dryrun"),
@@ -89,7 +91,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // API fetches
     const fetchStatus = async () => {
         try {
-            const res = await fetch("/api/status");
+            const res = await fetch("/api/status", {
+                headers: { "X-Tenant-ID": state.activeTenant }
+            });
             state.status = await res.json();
             updateStatusUI();
         } catch (e) {
@@ -99,7 +103,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const fetchMetrics = async () => {
         try {
-            const res = await fetch("/api/metrics");
+            const res = await fetch("/api/metrics", {
+                headers: { "X-Tenant-ID": state.activeTenant }
+            });
             state.metrics = await res.json();
             updateMetricsUI();
         } catch (e) {
@@ -109,7 +115,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const fetchApprovals = async () => {
         try {
-            const res = await fetch("/api/approvals");
+            const res = await fetch("/api/approvals", {
+                headers: { "X-Tenant-ID": state.activeTenant }
+            });
             state.approvals = await res.json();
             updateApprovalsUI();
         } catch (e) {
@@ -119,7 +127,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const fetchAudit = async () => {
         try {
-            const res = await fetch("/api/audit");
+            const res = await fetch("/api/audit", {
+                headers: { "X-Tenant-ID": state.activeTenant }
+            });
             state.audit = await res.json();
             updateAuditUI();
         } catch (e) {
@@ -129,7 +139,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const fetchAllowlist = async () => {
         try {
-            const res = await fetch("/api/allowlist");
+            const res = await fetch("/api/allowlist", {
+                headers: { "X-Tenant-ID": state.activeTenant }
+            });
             state.allowlist = await res.json();
             updateAllowlistUI();
         } catch (e) {
@@ -418,7 +430,10 @@ document.addEventListener("DOMContentLoaded", () => {
             if (type === "approve" || type === "deny") {
                 const res = await fetch(`/api/approvals/${targetId}/action`, {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Tenant-ID": state.activeTenant
+                    },
                     body: JSON.stringify({
                         action: type,
                         operator_id: operatorId,
@@ -438,7 +453,10 @@ document.addEventListener("DOMContentLoaded", () => {
             } else if (type === "promote") {
                 const res = await fetch("/api/allowlist/promote", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Tenant-ID": state.activeTenant
+                    },
                     body: JSON.stringify({
                         action_class: actionClass,
                         operator_id: operatorId,
@@ -458,7 +476,10 @@ document.addEventListener("DOMContentLoaded", () => {
             } else if (type === "demote") {
                 const res = await fetch("/api/allowlist/demote", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Tenant-ID": state.activeTenant
+                    },
                     body: JSON.stringify({
                         action_class: actionClass,
                         operator_id: operatorId,
@@ -509,6 +530,12 @@ document.addEventListener("DOMContentLoaded", () => {
     // Live search
     elements.auditSearch.addEventListener("input", (e) => {
         renderFilteredAudit(e.target.value);
+    });
+
+    // Tenant selection listener
+    elements.tenantSelect.addEventListener("change", (e) => {
+        state.activeTenant = e.target.value;
+        refreshData();
     });
 
     // Refresh orchestration

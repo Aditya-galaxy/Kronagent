@@ -29,6 +29,8 @@ to the hash-chained audit log with who did it and why.
 
 from __future__ import annotations
 
+from typing import Optional
+
 from .allowlist import AllowlistStore
 from .config import Settings
 from .schemas import ActionClass, BlastRadius, PolicyDecision, ProposedAction
@@ -121,7 +123,13 @@ class PolicyEngine:
             and not p["destructive"]
         )
 
-    def decide(self, action: ProposedAction, *, severity: float) -> PolicyDecision:
+    def decide(
+        self,
+        action: ProposedAction,
+        *,
+        severity: float,
+        allowlist: Optional[AllowlistStore] = None
+    ) -> PolicyDecision:
         s = self._settings
         props = self._properties(action.action_class)
         reversible = props["reversible"]
@@ -148,8 +156,9 @@ class PolicyEngine:
                 blast_radius=blast,
             )
 
+        actual_allowlist = allowlist if allowlist is not None else self._allowlist
         auto_eligible = self.is_auto_eligible(action.action_class)
-        allowlisted = self._allowlist.is_allowed(action.action_class)
+        allowlisted = actual_allowlist.is_allowed(action.action_class)
 
         if auto_eligible and allowlisted:
             return PolicyDecision(
