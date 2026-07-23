@@ -80,6 +80,12 @@ class Settings:
     audit_log_path: str = "aegis_audit.jsonl"
     approval_store_path: str = "aegis_approvals.json"
     allowlist_store_path: str = "aegis_allowlist.json"
+    # Operator registry for identity + RBAC. Empty (default) = unauthenticated
+    # mode: approvals/promotions use free-text --by and are audited as
+    # identity_verified=false. Point this at a registry (see operators.py /
+    # aegis.identity) to enforce authenticated, authorized, non-repudiable
+    # operator decisions.
+    operator_registry_path: str = ""
     db_path: str = ""
     max_workers: int = 1
     kms_key_id: str = ""
@@ -108,6 +114,7 @@ class Settings:
             audit_log_path=os.getenv("AEGIS_AUDIT_PATH", "aegis_audit.jsonl"),
             approval_store_path=approval_path,
             allowlist_store_path=os.getenv("AEGIS_ALLOWLIST_PATH", "aegis_allowlist.json"),
+            operator_registry_path=os.getenv("AEGIS_OPERATOR_REGISTRY", ""),
             db_path=db_path,
             max_workers=int(os.getenv("AEGIS_MAX_WORKERS", "1")),
             kms_key_id=os.getenv("AEGIS_KMS_KEY_ID", ""),
