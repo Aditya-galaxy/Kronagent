@@ -64,19 +64,22 @@ class TriageEngine:
         # normalized finding, not the model.
         candidates = plan_actions(finding)
 
+        from .sanitization import sanitize_finding
+        sanitized = sanitize_finding(finding)
+
         resource_lines = "\n".join(
             f"  - {r.kind} {r.id}" + (f" ({r.attributes})" if r.attributes else "")
-            for r in finding.resources
+            for r in sanitized.resources
         ) or "  (none)"
         prompt = (
             "Review this security finding.\n\n"
-            f"Provider: {finding.provider}\n"
-            f"Finding ID: {finding.finding_id}\n"
-            f"Type: {finding.finding_type}\n"
-            f"Severity (0-10 normalized): {finding.severity} ({finding.severity_band})\n"
-            f"Title: {finding.title or 'n/a'}\n"
-            f"Description: {finding.description or 'n/a'}\n"
-            f"Remote IP: {finding.remote_ip or 'n/a'}\n"
+            f"Provider: {sanitized.provider}\n"
+            f"Finding ID: {sanitized.finding_id}\n"
+            f"Type: {sanitized.finding_type}\n"
+            f"Severity (0-10 normalized): {sanitized.severity} ({sanitized.severity_band})\n"
+            f"Title: {sanitized.title or 'n/a'}\n"
+            f"Description: {sanitized.description or 'n/a'}\n"
+            f"Remote IP: {sanitized.remote_ip or 'n/a'}\n"
             f"Implicated resources:\n{resource_lines}\n"
         )
 

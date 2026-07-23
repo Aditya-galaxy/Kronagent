@@ -117,3 +117,60 @@ def test_sanitize_finding_e2e() -> None:
     assert len(clean.resources) == 1
     assert "override policy" not in clean.resources[0].id
     assert ";" not in clean.resources[0].id
+
+
+@pytest.mark.asyncio
+async def test_triage_engine_preserves_target_but_sanitizes_llm_prompt() -> None:
+    from aegis.triage import TriageEngine
+    from aegis.schemas import TriageVerdict
+    
+    # Define a mock LLM that captures the prompt sent to it.
+    captured_prompts = []
+    
+    class MockLLM:
+        async def structured(self, *, system: str, prompt: str, schema):
+            captured_prompts.append(prompt)
+            # Return a mock output matching schema fields
+            class MockOutput:
+                is_actionable_threat = True
+                threat_category = "Credential Abuse"
+                confidence = 0.9
+                justification = "Testing"
+                correlated_signals = []
+            return MockOutput()
+
+    triage = TriageEngine(MockLLM())
+    
+    finding = Finding(
+        provider="aws",
+        finding_id="f1",
+        finding_type="GuardDuty:Exfiltration",
+        severity=8.0,
+        title="Access key compromise",
+        description="Normal user activity",
+        resources=[
+            ResourceRef(
+                kind="aws.iam.user",
+                id="arn:aws:iam::123456789012:user/alice+bob@gmail.com",
+                attributes={}
+            )
+        ]
+    )
+    
+    verdict, candidates = await triage.assess(finding)
+    
+    # Assert candidate action's target is EXACTLY the unsanitized ID
+    assert len(candidates) > 0
+    found_target = False
+    for action in candidates:
+        if action.action_class.value == "attach_deny_all_to_principal":
+            assert action.target == "arn:aws:iam::123456789012:user/alice+bob@gmail.com"
+            found_target = True
+    assert found_target
+        
+    # Assert captured prompt has sanitized target (i.e. "+" and "@" removed)
+    assert len(captured_prompts) == 1
+    prompt_text = captured_prompts[0]
+    assert "alice+bob@gmail.com" not in prompt_text
+    assert "alicebobgmail.com" in prompt_text
+

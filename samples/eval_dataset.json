@@ -1,0 +1,463 @@
+[
+  {
+    "finding_id": "eval-aws-attack-0001",
+    "provider": "aws",
+    "expected_actionable": true,
+    "description": "IAM Access Key credential exfiltration from external IP (Tor exit node). Should plan disabling access key, detaching user permissions, and blocking IP.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-attack-0001",
+      "Type": "UnauthorizedAccess:IAMUser/InstanceCredentialExfiltration.OutsideAWS",
+      "Severity": 8.0,
+      "Title": "Credentials for IAM role svc-backup used from external IP.",
+      "Description": "EC2 instance role credentials were used from Tor exit node remote IP 185.220.101.7.",
+      "Resource": {
+        "ResourceType": "AccessKey",
+        "AccessKeyDetails": {
+          "AccessKeyId": "ASIAEVALATTACK01",
+          "UserName": "svc-backup",
+          "UserType": "AssumedRole"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 412,
+        "Action": {
+          "ActionType": "AWS_API_CALL",
+          "AwsApiCallAction": {
+            "Api": "GetObject",
+            "CallerType": "Remote IP",
+            "RemoteIpDetails": {
+              "IpAddressV4": "185.220.101.7",
+              "Organization": { "Org": "Tor Exit Node" }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "finding_id": "eval-aws-attack-0002",
+    "provider": "aws",
+    "expected_actionable": true,
+    "description": "EC2 instance cryptocurrency mining pool domain queries. Should plan security group isolation.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-attack-0002",
+      "Type": "CryptoCurrency:EC2/BitcoinTool.B!DNS",
+      "Severity": 7.5,
+      "Title": "EC2 instance querying cryptocurrency mining domains.",
+      "Description": "EC2 instance i-0a1b2c3d4e5f60789 is resolving XMRig mining pool domains.",
+      "Resource": {
+        "ResourceType": "Instance",
+        "InstanceDetails": {
+          "InstanceId": "i-0a1b2c3d4e5f60789"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 37,
+        "Action": { "ActionType": "DNS_REQUEST" }
+      }
+    }
+  },
+  {
+    "finding_id": "eval-aws-benign-0003",
+    "provider": "aws",
+    "expected_actionable": false,
+    "description": "Unprotected port probe on EC2 instance (background internet noise). Should not trigger containment.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-benign-0003",
+      "Type": "Recon:EC2/PortProbeUnprotectedPort",
+      "Severity": 2.0,
+      "Title": "Unprotected port probed on EC2 instance.",
+      "Description": "EC2 instance i-0999888777666555 is receiving normal port scanning from 45.155.205.99.",
+      "Resource": {
+        "ResourceType": "Instance",
+        "InstanceDetails": {
+          "InstanceId": "i-0999888777666555"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 3,
+        "Action": {
+          "ActionType": "NETWORK_CONNECTION",
+          "AwsApiCallAction": {
+            "RemoteIpDetails": { "IpAddressV4": "45.155.205.99" }
+          }
+        }
+      }
+    }
+  },
+  {
+    "finding_id": "eval-aws-attack-0004",
+    "provider": "aws",
+    "expected_actionable": true,
+    "description": "Anomalous large exfiltration behavior to an unauthorized host. Should block the IP.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-attack-0004",
+      "Type": "Exfiltration:S3/AnomalousBehavior",
+      "Severity": 8.2,
+      "Title": "Anomalous data transfer from S3 bucket.",
+      "Description": "Large volume S3 data download from remote IP 185.220.101.8.",
+      "Resource": {
+        "ResourceType": "AccessKey",
+        "AccessKeyDetails": {
+          "AccessKeyId": "ASIAEXAMPLEEXFIL02",
+          "UserName": "data-sync"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 1000,
+        "Action": {
+          "ActionType": "AWS_API_CALL",
+          "AwsApiCallAction": {
+            "Api": "GetObject",
+            "CallerType": "Remote IP",
+            "RemoteIpDetails": {
+              "IpAddressV4": "185.220.101.8"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "finding_id": "eval-aws-benign-0005",
+    "provider": "aws",
+    "expected_actionable": false,
+    "description": "Low severity network connection from public IP. Normal developer activity.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-benign-0005",
+      "Type": "Recon:EC2/PortProbeUnprotectedPort",
+      "Severity": 1.5,
+      "Title": "Low severity network activity.",
+      "Description": "EC2 instance i-07777777777777777 accessed on port 80.",
+      "Resource": {
+        "ResourceType": "Instance",
+        "InstanceDetails": {
+          "InstanceId": "i-07777777777777777"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 1,
+        "Action": {
+          "ActionType": "NETWORK_CONNECTION",
+          "AwsApiCallAction": {
+            "RemoteIpDetails": { "IpAddressV4": "12.34.56.78" }
+          }
+        }
+      }
+    }
+  },
+  {
+    "finding_id": "eval-aws-attack-0006",
+    "provider": "aws",
+    "expected_actionable": true,
+    "description": "IAM User creating administrator access policy inline. Privilege escalation threat.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-attack-0006",
+      "Type": "PrivilegeEscalation:IAMUser/AdministrativeAccessCreated",
+      "Severity": 9.0,
+      "Title": "IAM User created inline AdministratorAccess policy.",
+      "Description": "User developer-temp created an inline policy granting *.* to all resources.",
+      "Resource": {
+        "ResourceType": "AccessKey",
+        "AccessKeyDetails": {
+          "AccessKeyId": "AKIAEXAMPLEPRIVILEGE",
+          "UserName": "developer-temp"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 1,
+        "Action": {
+          "ActionType": "AWS_API_CALL",
+          "AwsApiCallAction": {
+            "Api": "PutUserPolicy"
+          }
+        }
+      }
+    }
+  },
+  {
+    "finding_id": "eval-aws-benign-0007",
+    "provider": "aws",
+    "expected_actionable": false,
+    "description": "IAM policy metadata check. Informational and not actionable.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-benign-0007",
+      "Type": "Policy:IAMUser/NormalAccessCheck",
+      "Severity": 1.0,
+      "Title": "Normal IAM metadata read connection.",
+      "Description": "User read permissions configuration details.",
+      "Resource": {
+        "ResourceType": "AccessKey",
+        "AccessKeyDetails": {
+          "AccessKeyId": "AKIAEXAMPLEBENIGN07",
+          "UserName": "read-only-reporter"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 1
+      }
+    }
+  },
+  {
+    "finding_id": "eval-aws-benign-0008",
+    "provider": "aws",
+    "expected_actionable": false,
+    "description": "Compliance finding: S3 bucket publicly accessible. Gated by policy threshold.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-benign-0008",
+      "Type": "Policy:IAMUser/S3BucketPubliclyAccessible",
+      "Severity": 3.0,
+      "Title": "S3 bucket configuration has public access enabled.",
+      "Description": "Bucket example-public-bucket-1 has public access policy.",
+      "Resource": {
+        "ResourceType": "AccessKey",
+        "AccessKeyDetails": {
+          "AccessKeyId": "AKIAEXAMPLEBENIGN08",
+          "UserName": "admin-deployer"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 1
+      }
+    }
+  },
+  {
+    "finding_id": "eval-aws-attack-0009",
+    "provider": "aws",
+    "expected_actionable": true,
+    "description": "Outbound brute force SSH attacks from EC2 instance. Indicates compromised node.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-attack-0009",
+      "Type": "UnauthorizedAccess:EC2/SSHBruteForce",
+      "Severity": 7.2,
+      "Title": "EC2 instance performing outbound SSH brute force attacks.",
+      "Description": "EC2 instance i-0sshbrute123456 is sending high volume TCP traffic to port 22 on multiple IPs.",
+      "Resource": {
+        "ResourceType": "Instance",
+        "InstanceDetails": {
+          "InstanceId": "i-0sshbrute123456"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 2500,
+        "Action": {
+          "ActionType": "NETWORK_CONNECTION",
+          "AwsApiCallAction": {
+            "RemoteIpDetails": { "IpAddressV4": "198.51.100.5" }
+          }
+        }
+      }
+    }
+  },
+  {
+    "finding_id": "eval-aws-benign-0010",
+    "provider": "aws",
+    "expected_actionable": false,
+    "description": "Successful SSH session from verified office IP. Benign activity.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-benign-0010",
+      "Type": "Policy:EC2/SSHSuccessfulConnection",
+      "Severity": 2.0,
+      "Title": "Successful SSH connection from office IP.",
+      "Description": "EC2 instance received successful login from 203.0.113.50 (Office Range).",
+      "Resource": {
+        "ResourceType": "Instance",
+        "InstanceDetails": {
+          "InstanceId": "i-0officeaccess"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 1,
+        "Action": {
+          "ActionType": "NETWORK_CONNECTION",
+          "AwsApiCallAction": {
+            "RemoteIpDetails": { "IpAddressV4": "203.0.113.50" }
+          }
+        }
+      }
+    }
+  },
+  {
+    "finding_id": "eval-k8s-attack-0011",
+    "provider": "kubernetes",
+    "expected_actionable": true,
+    "description": "Unauthorized pod exec into payments pod. Privilege escalation.",
+    "raw_event": {
+      "auditID": "eval-k8s-attack-0011",
+      "verb": "create",
+      "user": { "username": "system:serviceaccount:default:anonymous", "groups": ["system:unauthenticated"] },
+      "sourceIPs": ["10.0.9.14"],
+      "objectRef": { "resource": "pods", "namespace": "payments", "name": "payments-api-7f9c8d", "subresource": "exec" },
+      "detected_rule": "privilege_escalation_exec",
+      "node_name": "ip-10-0-3-51.ec2.internal"
+    }
+  },
+  {
+    "finding_id": "eval-k8s-attack-0012",
+    "provider": "kubernetes",
+    "expected_actionable": true,
+    "description": "Cluster-wide secret enumeration attempt. High risk credentials scan.",
+    "raw_event": {
+      "auditID": "eval-k8s-attack-0012",
+      "verb": "get",
+      "user": { "username": "system:serviceaccount:ci:deleted-job-token", "groups": ["system:serviceaccounts"] },
+      "sourceIPs": ["10.0.4.201"],
+      "objectRef": { "resource": "secrets", "namespace": "kube-system", "name": "*" },
+      "detected_rule": "secret_enumeration"
+    }
+  },
+  {
+    "finding_id": "eval-k8s-attack-0013",
+    "provider": "kubernetes",
+    "expected_actionable": true,
+    "description": "Malicious pod deployment resolving cryptomine pools.",
+    "raw_event": {
+      "auditID": "eval-k8s-attack-0013",
+      "verb": "create",
+      "user": { "username": "system:serviceaccount:default:builder", "groups": ["system:serviceaccounts"] },
+      "sourceIPs": ["10.0.7.88"],
+      "objectRef": { "resource": "deployments", "namespace": "default", "name": "nginx-update-svc" },
+      "detected_rule": "crypto_mining_pod"
+    }
+  },
+  {
+    "finding_id": "eval-k8s-benign-0014",
+    "provider": "kubernetes",
+    "expected_actionable": false,
+    "description": "Prometheus listing pods for metric scraping. Normal noise.",
+    "raw_event": {
+      "auditID": "eval-k8s-benign-0014",
+      "verb": "list",
+      "user": { "username": "system:serviceaccount:monitoring:prometheus", "groups": ["system:serviceaccounts"] },
+      "sourceIPs": ["10.0.2.10"],
+      "objectRef": { "resource": "pods", "namespace": "monitoring", "name": "node-exporter-abc12" },
+      "detected_rule": "benign_scan",
+      "node_name": "ip-10-0-2-10.ec2.internal"
+    }
+  },
+  {
+    "finding_id": "eval-k8s-benign-0015",
+    "provider": "kubernetes",
+    "expected_actionable": false,
+    "description": "Standard Kubernetes controller reconciling pods.",
+    "raw_event": {
+      "auditID": "eval-k8s-benign-0015",
+      "verb": "get",
+      "user": { "username": "system:kube-controller-manager", "groups": ["system:authenticated"] },
+      "sourceIPs": ["127.0.0.1"],
+      "objectRef": { "resource": "pods", "namespace": "kube-system", "name": "kube-dns-xxxx" },
+      "detected_rule": "benign_scan"
+    }
+  },
+  {
+    "finding_id": "eval-k8s-benign-0016",
+    "provider": "kubernetes",
+    "expected_actionable": false,
+    "description": "Developer executing into development pod in staging. Allowable by scope.",
+    "raw_event": {
+      "auditID": "eval-k8s-benign-0016",
+      "verb": "create",
+      "user": { "username": "alice@company.com", "groups": ["system:authenticated"] },
+      "sourceIPs": ["192.168.1.100"],
+      "objectRef": { "resource": "pods", "namespace": "staging", "name": "frontend-dev-pod", "subresource": "exec" },
+      "detected_rule": "benign_scan"
+    }
+  },
+  {
+    "finding_id": "eval-k8s-benign-0017",
+    "provider": "kubernetes",
+    "expected_actionable": false,
+    "description": "Standard scale down/deletion of a job runner. Normal activity.",
+    "raw_event": {
+      "auditID": "eval-k8s-benign-0017",
+      "verb": "delete",
+      "user": { "username": "system:serviceaccount:default:job-manager", "groups": ["system:serviceaccounts"] },
+      "sourceIPs": ["10.0.4.15"],
+      "objectRef": { "resource": "pods", "namespace": "default", "name": "transcoder-job-77a" },
+      "detected_rule": "benign_scan"
+    }
+  },
+  {
+    "finding_id": "eval-k8s-benign-0018",
+    "provider": "kubernetes",
+    "expected_actionable": false,
+    "description": "Deployment scaled to zero by an automated dev job.",
+    "raw_event": {
+      "auditID": "eval-k8s-benign-0018",
+      "verb": "update",
+      "user": { "username": "system:serviceaccount:default:ci-cd", "groups": ["system:serviceaccounts"] },
+      "sourceIPs": ["10.0.1.20"],
+      "objectRef": { "resource": "deployments", "namespace": "testing", "name": "integration-web" },
+      "detected_rule": "benign_scan"
+    }
+  },
+  {
+    "finding_id": "eval-k8s-attack-0019",
+    "provider": "kubernetes",
+    "expected_actionable": true,
+    "description": "Host filesystem mounted in container. Malicious mount rule.",
+    "raw_event": {
+      "auditID": "eval-k8s-attack-0019",
+      "verb": "create",
+      "user": { "username": "system:serviceaccount:default:anonymous", "groups": ["system:unauthenticated"] },
+      "sourceIPs": ["10.0.8.22"],
+      "objectRef": { "resource": "pods", "namespace": "default", "name": "attacker-escape-pod" },
+      "detected_rule": "sensitive_mount"
+    }
+  },
+  {
+    "finding_id": "eval-k8s-attack-0020",
+    "provider": "kubernetes",
+    "expected_actionable": true,
+    "description": "Exec into core kube-system component. Highly critical threat.",
+    "raw_event": {
+      "auditID": "eval-k8s-attack-0020",
+      "verb": "create",
+      "user": { "username": "untrusted-user", "groups": ["system:authenticated"] },
+      "sourceIPs": ["198.51.100.9"],
+      "objectRef": { "resource": "pods", "namespace": "kube-system", "name": "kube-apiserver-control-plane", "subresource": "exec" },
+      "detected_rule": "privilege_escalation_exec",
+      "node_name": "control-plane-node"
+    }
+  }
+]

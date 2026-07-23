@@ -153,14 +153,17 @@ class IncidentCommanderAgent:
         if self._llm is None:
             return IncidentAssessment(finding_id=finding.finding_id, available=False)
 
+        from .sanitization import sanitize_finding
+        sanitized = sanitize_finding(finding)
+
         prompt = (
             "Synthesize the specialist assessments into one incident assessment.\n\n"
             "=== Finding ===\n"
-            f"Provider: {finding.provider}\n"
-            f"Finding ID: {finding.finding_id}\n"
-            f"Type: {finding.finding_type}\n"
-            f"Severity (0-10 normalized): {finding.severity} ({finding.severity_band})\n"
-            f"Title: {finding.title or 'n/a'}\n\n"
+            f"Provider: {sanitized.provider}\n"
+            f"Finding ID: {sanitized.finding_id}\n"
+            f"Type: {sanitized.finding_type}\n"
+            f"Severity (0-10 normalized): {sanitized.severity} ({sanitized.severity_band})\n"
+            f"Title: {sanitized.title or 'n/a'}\n\n"
             "=== Triage analyst ===\n"
             f"  Actionable threat: {verdict.is_actionable_threat}\n"
             f"  Category: {verdict.threat_category}\n"
