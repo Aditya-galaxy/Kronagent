@@ -22,12 +22,17 @@ the normalized severity, so the pipeline never stalls waiting on the model.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel, Field
 
 from .llm import GeminiTriageClient, LLMUnavailableError
 from .model import Finding
 from .providers import plan_actions
 from .schemas import ProposedAction, TriageVerdict
+
+if TYPE_CHECKING:
+    from .crypto import Signer
 
 _SYSTEM = (
     "You are a senior SOC analyst reviewing a confirmed security finding from a "
@@ -56,8 +61,9 @@ class _LLMTriageOutput(BaseModel):
 
 
 class TriageEngine:
-    def __init__(self, llm: GeminiTriageClient | None) -> None:
+    def __init__(self, llm: GeminiTriageClient | None, signer: Signer | None = None) -> None:
         self._llm = llm
+        self._signer = signer
 
     async def assess(self, finding: Finding) -> tuple[TriageVerdict, list[ProposedAction]]:
         # Candidate actions come from the provider planner — targets from the
@@ -97,6 +103,8 @@ class TriageEngine:
                     justification=out.justification,
                     correlated_signals=out.correlated_signals,
                 )
+                if self._signer is not None:
+                    verdict = verdict.with_signature(self._signer)
                 return verdict, candidates
             except (LLMUnavailableError, Exception):  # noqa: BLE001 - fall back deterministically
                 pass
@@ -114,4 +122,6 @@ class TriageEngine:
             ),
             correlated_signals=[s for s in [finding.remote_ip] if s],
         )
+        if self._signer is not None:
+            verdict = verdict.with_signature(self._signer)
         return verdict, candidates

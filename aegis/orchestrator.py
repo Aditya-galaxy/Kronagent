@@ -126,6 +126,20 @@ class Orchestrator:
 
         # 1. Triage (deterministic detection + LLM enrichment)
         verdict, candidates = await self._triage.assess(finding)
+
+        # Verify agent signature if required
+        if self._settings.require_agent_signatures:
+            from .crypto import get_signer
+            signer = get_signer(self._settings)
+            if not verdict.verify_signature(signer):
+                _log("SECURITY_ALERT", f"{finding.finding_id}: triage verdict signature validation FAILED!")
+                await tenant_audit.record(AuditRecord(
+                    finding_id=finding.finding_id,
+                    stage="security_alert",
+                    payload={"detail": "Triage verdict signature validation failed. Possible tampering."}
+                ))
+                raise ValueError(f"Triage verdict signature verification failed for finding {finding.finding_id}")
+
         _log(
             "TRIAGE",
             f"{finding.finding_id}: actionable={verdict.is_actionable_threat} "

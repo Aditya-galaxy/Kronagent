@@ -71,6 +71,32 @@ def get_audit_log(tenant_id: str) -> AuditLog:
     return AuditLog(get_tenant_path(settings.audit_log_path, tenant_id))
 
 
+def check_view_permission(request: Request):
+    from .identity import registry_configured, resolve_actor
+    if settings.require_view_auth and (registry_configured(settings.operator_registry_path) or (settings.oidc_issuer and settings.oidc_audience)):
+        operator_id = request.headers.get("X-Operator-ID")
+        token = request.headers.get("X-Operator-Token")
+        if not operator_id or not token:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="VIEW permission required — pass operator ID and token in headers."
+            )
+        try:
+            resolve_actor(
+                registry_path=settings.operator_registry_path,
+                required=Permission.VIEW,
+                operator_id=operator_id,
+                token=token,
+                oidc_issuer=settings.oidc_issuer,
+                oidc_audience=settings.oidc_audience,
+                oidc_jwks_uri=settings.oidc_jwks_uri,
+                oidc_verify_signature=settings.oidc_verify_signature,
+                oidc_roles_claim=settings.oidc_roles_claim,
+            )
+        except AuthorizationError as exc:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+
+
 # --- Request/Response Models ---
 
 class ActionRequest(BaseModel):
@@ -102,6 +128,7 @@ def read_index() -> str:
 @app.get("/api/status")
 def get_status(request: Request) -> dict[str, Any]:
     """Retrieve system configuration switches and audit log verification integrity."""
+    check_view_permission(request)
     tenant_id = resolve_tenant_id(request)
     verified, _ = AuditLog.verify(get_tenant_path(settings.audit_log_path, tenant_id))
     return {
@@ -114,6 +141,7 @@ def get_status(request: Request) -> dict[str, Any]:
 @app.get("/api/approvals")
 def list_approvals(request: Request) -> list[Any]:
     """Retrieve all logged approval requests from the store."""
+    check_view_permission(request)
     tenant_id = resolve_tenant_id(request)
     store = get_approval_store(tenant_id)
     return [r.model_dump() for r in store.list()]
@@ -245,6 +273,7 @@ async def execute_approval_action(request_id: str, req: ActionRequest, request: 
 @app.get("/api/audit")
 def get_audit_trail(request: Request) -> list[dict[str, Any]]:
     """Retrieve chronological event history from the append-only audit log."""
+    check_view_permission(request)
     tenant_id = resolve_tenant_id(request)
     records = []
     audit_path = get_tenant_path(settings.audit_log_path, tenant_id)
@@ -268,6 +297,7 @@ def get_audit_trail(request: Request) -> list[dict[str, Any]]:
 @app.get("/api/allowlist")
 def list_allowlist(request: Request) -> list[str]:
     """Retrieve all promoted autonomous action classes."""
+    check_view_permission(request)
     tenant_id = resolve_tenant_id(request)
     store = get_allowlist_store(tenant_id)
     return [entry.action_class for entry in store.list()]
@@ -372,6 +402,7 @@ async def demote_allowlist_class(req: PromoteRequest, request: Request) -> dict[
 @app.get("/api/metrics")
 def get_dashboard_metrics(request: Request) -> dict[str, int]:
     """Compile summary metrics counting total, autonomous, and human-approved action lifecycles."""
+    check_view_permission(request)
     tenant_id = resolve_tenant_id(request)
     store = get_approval_store(tenant_id)
     audit_path = get_tenant_path(settings.audit_log_path, tenant_id)
