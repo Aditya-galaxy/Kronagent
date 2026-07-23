@@ -218,6 +218,19 @@ class Orchestrator:
                     evidence_collected=forensics.evidence_kinds(),
                 ))
                 _log("CONTAIN", f"{finding.finding_id}: {outcome.detail}  [approval id: {req.request_id}]")
+                
+                # Trigger interactive Slack notification card in a background thread executor
+                from .chatops import ChatOpsNotifier
+                import asyncio
+                
+                ts = await asyncio.to_thread(
+                    ChatOpsNotifier.send_approval_notification,
+                    self._settings,
+                    req
+                )
+                if ts:
+                    req.slack_ts = ts
+                    self._approvals.update(req)
             else:
                 _log("CONTAIN", f"{finding.finding_id}: {outcome.detail}")
 

@@ -82,6 +82,9 @@ class ApprovalRequest(BaseModel):
     decision_reason: Optional[str] = None
     execution_detail: Optional[str] = None
 
+    # ChatOps state
+    slack_ts: Optional[str] = None
+
     def to_proposed_action(self) -> ProposedAction:
         return ProposedAction(
             provider=self.provider,

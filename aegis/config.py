@@ -23,6 +23,7 @@ silently reset to empty); once the store file exists, this env var is ignored.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 
@@ -97,12 +98,26 @@ class Settings:
     oidc_verify_signature: bool = True
     oidc_roles_claim: str = "roles"
 
+    # --- ChatOps (Slack / Teams) ---
+    slack_bot_token: str = ""
+    slack_signing_secret: str = ""
+    slack_channel_id: str = ""
+    slack_user_mapping: dict[str, str] = field(default_factory=dict)
+
     @classmethod
     def from_env(cls) -> "Settings":
         approval_path = os.getenv("AEGIS_APPROVAL_PATH", "aegis_approvals.json")
         db_path = os.getenv("AEGIS_DB_PATH", "")
         if not db_path and approval_path.endswith(".db"):
             db_path = approval_path
+
+        slack_user_mapping_str = os.getenv("AEGIS_SLACK_USER_MAPPING", "")
+        slack_user_mapping = {}
+        if slack_user_mapping_str:
+            try:
+                slack_user_mapping = json.loads(slack_user_mapping_str)
+            except json.JSONDecodeError:
+                pass
 
         return cls(
             dry_run=_env_bool("AEGIS_DRY_RUN", True),
@@ -130,4 +145,8 @@ class Settings:
             oidc_jwks_uri=os.getenv("AEGIS_OIDC_JWKS_URI", ""),
             oidc_verify_signature=_env_bool("AEGIS_OIDC_VERIFY_SIGNATURE", True),
             oidc_roles_claim=os.getenv("AEGIS_OIDC_ROLES_CLAIM", "roles"),
+            slack_bot_token=os.getenv("AEGIS_SLACK_BOT_TOKEN", ""),
+            slack_signing_secret=os.getenv("AEGIS_SLACK_SIGNING_SECRET", ""),
+            slack_channel_id=os.getenv("AEGIS_SLACK_CHANNEL_ID", ""),
+            slack_user_mapping=slack_user_mapping,
         )
