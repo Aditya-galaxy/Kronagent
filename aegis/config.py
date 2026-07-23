@@ -90,6 +90,13 @@ class Settings:
     max_workers: int = 1
     kms_key_id: str = ""
 
+    # --- OIDC / SAML SSO ---
+    oidc_issuer: str = ""
+    oidc_audience: str = ""
+    oidc_jwks_uri: str = ""
+    oidc_verify_signature: bool = True
+    oidc_roles_claim: str = "roles"
+
     @classmethod
     def from_env(cls) -> "Settings":
         approval_path = os.getenv("AEGIS_APPROVAL_PATH", "aegis_approvals.json")
@@ -118,4 +125,9 @@ class Settings:
             db_path=db_path,
             max_workers=int(os.getenv("AEGIS_MAX_WORKERS", "1")),
             kms_key_id=os.getenv("AEGIS_KMS_KEY_ID", ""),
+            oidc_issuer=os.getenv("AEGIS_OIDC_ISSUER", ""),
+            oidc_audience=os.getenv("AEGIS_OIDC_AUDIENCE", ""),
+            oidc_jwks_uri=os.getenv("AEGIS_OIDC_JWKS_URI", ""),
+            oidc_verify_signature=_env_bool("AEGIS_OIDC_VERIFY_SIGNATURE", True),
+            oidc_roles_claim=os.getenv("AEGIS_OIDC_ROLES_CLAIM", "roles"),
         )

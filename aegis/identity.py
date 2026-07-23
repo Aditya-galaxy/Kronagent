@@ -168,6 +168,141 @@ def registry_configured(registry_path: str) -> bool:
     return bool(registry_path) and os.path.exists(registry_path)
 
 
+# --------------------------------------------------------------------------- #
+# OIDC / SAML SSO Identity Provider
+# --------------------------------------------------------------------------- #
+
+def base64url_decode(s: str) -> str:
+    """Decodes a base64url encoded string (OIDC/JWT format)."""
+    import base64
+    rem = len(s) % 4
+    if rem > 0:
+        s += '=' * (4 - rem)
+    return base64.urlsafe_b64decode(s.encode("utf-8")).decode("utf-8")
+
+
+class OidcIdentityProvider:
+    """OIDC Identity Provider.
+    
+    Verifies OIDC ID tokens (JWTs) against an issuer and audience, extracts
+    user identity, and maps claims to system roles.
+    """
+    def __init__(
+        self,
+        issuer: str,
+        audience: str,
+        jwks_uri: Optional[str] = None,
+        verify_signature: bool = True,
+        roles_claim: str = "roles",
+    ) -> None:
+        self.issuer = issuer
+        self.audience = audience
+        self.jwks_uri = jwks_uri or f"{issuer.rstrip('/')}/.well-known/openid-configuration"
+        self.verify_signature = verify_signature
+        self.roles_claim = roles_claim
+        self._resolved_jwks_uri: Optional[str] = None
+
+    def _get_jwks_uri(self) -> str:
+        if self._resolved_jwks_uri:
+            return self._resolved_jwks_uri
+            
+        if self.jwks_uri.endswith("/openid-configuration"):
+            import requests
+            try:
+                config = requests.get(self.jwks_uri, timeout=5).json()
+                self._resolved_jwks_uri = config.get("jwks_uri")
+            except Exception as e:
+                raise AuthorizationError(f"Failed to discover OIDC JWKS URI: {e}")
+        else:
+            self._resolved_jwks_uri = self.jwks_uri
+            
+        return self._resolved_jwks_uri
+
+    def authenticate(self, operator_id: str, token: Optional[str]) -> Optional[Operator]:
+        if not token:
+            return None
+
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+
+        header_b64, payload_b64, signature_b64 = parts
+
+        try:
+            payload_str = base64url_decode(payload_b64)
+            payload = json.loads(payload_str)
+        except Exception:
+            return None
+
+        # Verify claims
+        # 1. Expiration check
+        import time
+        exp = payload.get("exp")
+        if not exp or exp < time.time():
+            return None
+
+        # 2. Issuer check
+        iss = payload.get("iss", "")
+        if iss.rstrip("/") != self.issuer.rstrip("/"):
+            return None
+
+        # 3. Audience check
+        aud = payload.get("aud")
+        if isinstance(aud, list):
+            if self.audience not in aud:
+                return None
+        elif aud != self.audience:
+            return None
+
+        # 4. Operator identity check
+        sub = payload.get("sub", "")
+        email = payload.get("email", "")
+        username = payload.get("preferred_username", "")
+        
+        matches_operator = (operator_id in {sub, email, username} and operator_id != "")
+        if not matches_operator:
+            return None
+
+        # 5. Optional signature verification
+        if self.verify_signature:
+            try:
+                import jwt
+                jwks_url = self._get_jwks_uri()
+                jwk_client = jwt.PyJWKClient(jwks_url)
+                signing_key = jwk_client.get_signing_key_from_jwt(token)
+                jwt.decode(
+                    token,
+                    signing_key.key,
+                    algorithms=["RS256"],
+                    audience=self.audience,
+                    issuer=self.issuer
+                )
+            except ImportError:
+                raise AuthorizationError(
+                    "OIDC signature verification is enabled, but 'pyjwt' or 'cryptography' "
+                    "is not installed. Install them or set AEGIS_OIDC_VERIFY_SIGNATURE=false."
+                )
+            except Exception as e:
+                # Verification failed
+                return None
+
+        # Extract roles
+        roles_val = payload.get(self.roles_claim, [])
+        if isinstance(roles_val, str):
+            roles = [roles_val]
+        elif isinstance(roles_val, list):
+            roles = [str(r) for r in roles_val]
+        else:
+            roles = []
+
+        return Operator(
+            operator_id=operator_id,
+            display_name=payload.get("name") or payload.get("email") or operator_id,
+            roles=roles,
+            active=True
+        )
+
+
 def resolve_actor(
     *,
     registry_path: str,
@@ -175,17 +310,54 @@ def resolve_actor(
     by: Optional[str] = None,
     operator_id: Optional[str] = None,
     token: Optional[str] = None,
+    oidc_issuer: Optional[str] = None,
+    oidc_audience: Optional[str] = None,
+    oidc_jwks_uri: Optional[str] = None,
+    oidc_verify_signature: bool = True,
+    oidc_roles_claim: str = "roles",
 ) -> AuthContext:
     """Resolve and authorize the operator behind a command.
 
-    Enforced mode (registry configured): authenticate `operator_id` + `token`,
+    Enforced OIDC mode: if oidc_issuer and oidc_audience are configured,
+    authenticate via OidcIdentityProvider.
+
+    Enforced Local mode (registry configured): authenticate `operator_id` + `token`,
     then require `required`. Raises AuthorizationError on any failure.
 
     Unauthenticated mode (no registry): return a self-asserted context from
-    `by`, marked identity_verified=False. No permission is enforced because
-    there is no identity to enforce it against — the audit record makes that
-    explicit rather than pretending otherwise.
+    `by`, marked identity_verified=False.
     """
+    # 1. OIDC SSO Authentication
+    if oidc_issuer and oidc_audience:
+        if not operator_id:
+            raise AuthorizationError(
+                "authentication required — OIDC SSO is configured. "
+                "Pass --as <operator_id> and a token (--token or AEGIS_OPERATOR_TOKEN)."
+            )
+        provider = OidcIdentityProvider(
+            issuer=oidc_issuer,
+            audience=oidc_audience,
+            jwks_uri=oidc_jwks_uri,
+            verify_signature=oidc_verify_signature,
+            roles_claim=oidc_roles_claim,
+        )
+        operator = provider.authenticate(operator_id, token)
+        if operator is None:
+            raise AuthorizationError(f"OIDC authentication failed for operator '{operator_id}'.")
+        if not operator.can(required):
+            raise AuthorizationError(
+                f"operator '{operator_id}' (roles: {operator.roles or 'none'}) "
+                f"lacks the '{required.value}' permission required for this action."
+            )
+        return AuthContext(
+            operator_id=operator.operator_id,
+            display_name=operator.display_name,
+            roles=operator.roles,
+            identity_verified=True,
+            auth_method="oidc",
+        )
+
+    # 2. Local Registry Authentication
     if registry_configured(registry_path):
         if not operator_id:
             raise AuthorizationError(
@@ -208,7 +380,7 @@ def resolve_actor(
             auth_method="local_token",
         )
 
-    # Unauthenticated fallback.
+    # 3. Unauthenticated fallback
     if not by:
         raise AuthorizationError(
             "--by <operator> is required (no operator registry configured)."
