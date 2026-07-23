@@ -242,24 +242,29 @@ python3 -m pytest -q
 
 ## Status
 
-This is a functional vertical slice. Detection, triage, policy, approval, governance, and audit are real and tested end-to-end against both AWS and Kubernetes. Containment execution contains fully implemented, live client code paths for key containment actions: `BLOCK_IP` (AWS Network ACLs), `REVOKE_ROLE_SESSIONS` (AWS IAM), and `ISOLATE_POD` (Kubernetes NetworkPolicies). The platform also supports database persistence for campaign memory and approvals, and features automated EU AI Act compliance report exporting. Other actions run in plan-only/dry-run unless custom adapters are added.
+This is a fully functional vertical slice. The core agent team, policy engine, containment execution, parallel worker tasks, sqlite-backed persistence, cryptographic KMS/RSA forensic custody signing, telemetry sanitization shielding, and continuous red-team drift simulation are fully implemented and validated.
 
 ---
 
 ## Roadmap & Future Work
 
-Based on Aegis's design milestones (detailed in `aegis_next_steps.md`), the following architectural and security developments are planned:
+Based on Aegis's long-term design milestones (detailed in [aegis_next_steps.md](file:///Users/aditya/HawkAI/aegis_next_steps.md)), development is sequenced as follows:
 
-### 1. Staging Testbed (Minikube + LocalStack)
-*   **Simulation Environment:** Construct a local cluster and cloud sandbox environment (Minikube/Kind + LocalStack) to dry-run containment actions against real simulated resources before promotion to staging cloud accounts.
+### Phase 1 — Measured Evaluation Harness (Current)
+*   **Pipeline Evaluation:** Implement a labeled benchmark corpus (benign + attack traces) and regression metrics (Precision/Recall/F1, containment decision correctness, and False-Positive-Under-Authority) with Wilson score confidence intervals to mathematically verify agent accuracy.
 
-### 2. Distributed Workers & Scaling
-*   **Task Queues:** Decouple ingestion from orchestration by introducing a distributed worker queue architecture (e.g., Celery/async worker pools) to process telemetry streams concurrently.
+### Phase 2 — Enterprise Readiness & OCSF Integration
+*   **SIEM & Normalization:** Standardize finding and audit logging onto **OCSF (Open Cybersecurity Schema Framework)** schemas for seamless Splunk/Sentinel integration.
+*   **SSO & Isolation:** Implement SAML/OIDC authentication and tenant/business-unit isolation scopes.
+*   **Consoles & ChatOps:** Build a web-based approval queue/incident log console and Slack/Teams integration for workflow approvals.
 
-### 3. Adversarial AI Hardening
-*   **Sanitization Layer:** Put a preprocessing layer in place to sanitize IP and log headers before feeding prompts to LLM agents, shielding the triage/intel processes from prompt injection jailbreaks.
-*   **KMS-Signed Forensics:** Secure the forensic custody hashes by signing them with an AWS KMS or HSM private key, allowing immediate detection of post-record tampering.
+### Phase 3 — Production Infrastructure Validation
+*   **AWS Sandbox Validation:** Provision an isolated AWS account sandbox to validate AWS IP blocking and IAM rollbacks live, under continuous chaos/rollback drilling.
 
-### 4. Continuous Red Teaming
-*   **Benign Alert Drift:** Introduce a simulator that occasionally fires fake alerts to verify the policy engine, allowlist, and operator approval routing remain correctly calibrated and live.
+### Phase 4 — Agent Security Hardening
+*   **Credential Scoping:** Scope containment access credentials to per-action, just-in-time IAM grants rather than standing privileges.
+*   **Agent Identity & Non-Repudiation:** Implement signed agent-to-agent decision keys to verify decision provenance.
+
+### Phase 5 — Extended Integrations
+*   **New Providers:** Add GCP SCC, Azure Defender, Falco, CrowdStrike, and SentinelOne collectors alongside STIX/TAXII threat intelligence feed ingestion.
 

@@ -269,18 +269,21 @@ class CorrelationAgent:
         if self._llm is None or not prior:
             return CorrelationAssessment(finding_id=finding.finding_id, available=False)
 
+        from .sanitization import sanitize_finding
+        sanitized = sanitize_finding(finding)
+
         resource_lines = "\n".join(
-            f"  - {r.kind} {r.id}" for r in finding.resources
+            f"  - {r.kind} {r.id}" for r in sanitized.resources
         ) or "  (none)"
         prompt = (
             "Correlate this confirmed threat against recent prior findings.\n\n"
             "=== Current finding ===\n"
-            f"Finding ID: {finding.finding_id}\n"
-            f"Provider: {finding.provider}\n"
-            f"Type: {finding.finding_type}\n"
-            f"Severity (0-10): {finding.severity}\n"
-            f"Title: {finding.title or 'n/a'}\n"
-            f"Remote IP: {finding.remote_ip or 'n/a'}\n"
+            f"Finding ID: {sanitized.finding_id}\n"
+            f"Provider: {sanitized.provider}\n"
+            f"Type: {sanitized.finding_type}\n"
+            f"Severity (0-10): {sanitized.severity}\n"
+            f"Title: {sanitized.title or 'n/a'}\n"
+            f"Remote IP: {sanitized.remote_ip or 'n/a'}\n"
             f"Implicated resources:\n{resource_lines}\n\n"
             "=== Recent prior findings (most recent last) ===\n"
             f"{_summarize_history(prior)}\n"

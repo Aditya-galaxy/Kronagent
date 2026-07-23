@@ -71,9 +71,6 @@ class Orchestrator:
         return self._processed
 
     async def _handle(self, finding: Finding) -> None:
-        from .sanitization import sanitize_finding
-        finding = sanitize_finding(finding)
-
         _log("INCIDENT", f"--- [{finding.provider}] {finding.finding_id} | "
                          f"{finding.finding_type} | severity={finding.severity} ---")
 
@@ -83,7 +80,8 @@ class Orchestrator:
         prior = []
         if self._memory is not None:
             prior = self._memory.prior_to(finding.finding_id)
-            self._memory.add(finding)
+            from .sanitization import sanitize_finding
+            self._memory.add(sanitize_finding(finding))
 
         # 1. Triage (deterministic detection + LLM enrichment)
         verdict, candidates = await self._triage.assess(finding)
