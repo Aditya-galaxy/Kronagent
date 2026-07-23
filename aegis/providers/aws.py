@@ -273,6 +273,31 @@ class AwsContainmentAdapter:
             )
         return ([f"# no AWS planner for {ac.value}"], "unknown", f"unhandled action {ac.value}")
 
+    def _aws_call(self, func, *args, **kwargs):
+        import time
+        from botocore.exceptions import ClientError
+        
+        max_retries = 3
+        delay = 1.0
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except ClientError as exc:
+                code = exc.response.get("Error", {}).get("Code", "")
+                if code in ("Throttling", "RequestLimitExceeded", "ThrottlingException"):
+                    if attempt == max_retries - 1:
+                        raise
+                    time.sleep(delay)
+                    delay *= 2
+                    continue
+                if code in ("NoSuchEntity", "NoSuchEntityException"):
+                    raise RuntimeError(f"AWS Resource not found: {exc.response.get('Error', {}).get('Message')}") from exc
+                if "NotFound" in code or "NoSuch" in code:
+                    raise RuntimeError(f"AWS Resource not found: {exc.response.get('Error', {}).get('Message')}") from exc
+                if code in ("AccessDenied", "AccessDeniedException", "UnauthorizedOperation"):
+                    raise RuntimeError(f"Aegis IAM Access Denied: {exc.response.get('Error', {}).get('Message')}") from exc
+                raise
+
     async def perform(self, action: ProposedAction) -> tuple[str, str]:
         return await asyncio.to_thread(self._perform_sync, action)
 
@@ -281,11 +306,11 @@ class AwsContainmentAdapter:
         t = action.target
         if ac == ActionClass.DISABLE_ACCESS_KEY:
             user = action.parameters.get("user_name", "")
-            self._iam_client().update_access_key(UserName=user, AccessKeyId=t, Status="Inactive")
+            self._aws_call(self._iam_client().update_access_key, UserName=user, AccessKeyId=t, Status="Inactive")
             return (f"access key {t} set Inactive",
                     f"iam.update_access_key(UserName='{user}', AccessKeyId='{t}', Status='Active')")
         if ac == ActionClass.ATTACH_DENY_ALL_TO_PRINCIPAL:
-            self._iam_client().put_user_policy(
+            self._aws_call(self._iam_client().put_user_policy,
                 UserName=t, PolicyName="aegis-quarantine-deny-all", PolicyDocument=_DENY_ALL_POLICY
             )
             return (f"deny-all policy attached to {t}",
@@ -294,20 +319,20 @@ class AwsContainmentAdapter:
             if not self._quarantine_sg:
                 raise RuntimeError("AEGIS_QUARANTINE_SG_ID is not configured")
             ec2 = self._ec2_client()
-            desc = ec2.describe_instances(InstanceIds=[t])
+            desc = self._aws_call(ec2.describe_instances, InstanceIds=[t])
             original = [
                 g["GroupId"]
                 for r in desc["Reservations"] for i in r["Instances"]
                 for g in i.get("SecurityGroups", [])
             ]
-            ec2.modify_instance_attribute(InstanceId=t, Groups=[self._quarantine_sg])
+            self._aws_call(ec2.modify_instance_attribute, InstanceId=t, Groups=[self._quarantine_sg])
             return (f"instance {t} moved to quarantine SG {self._quarantine_sg} (was {original})",
                     f"ec2.modify_instance_attribute(InstanceId='{t}', Groups={original})")
         if ac == ActionClass.BLOCK_IP:
             if not self._quarantine_nacl:
                 raise RuntimeError("AEGIS_QUARANTINE_NACL_ID is not configured")
             ec2 = self._ec2_client()
-            desc = ec2.describe_network_acls(NetworkAclIds=[self._quarantine_nacl])
+            desc = self._aws_call(ec2.describe_network_acls, NetworkAclIds=[self._quarantine_nacl])
             entries = desc["NetworkAcls"][0]["Entries"]
             ingress_nums = {e["RuleNumber"] for e in entries if not e["Egress"]}
             egress_nums = {e["RuleNumber"] for e in entries if e["Egress"]}
@@ -315,7 +340,7 @@ class AwsContainmentAdapter:
             ingress_rule = next(i for i in range(100, 32767) if i not in ingress_nums)
             egress_rule = next(i for i in range(100, 32767) if i not in egress_nums)
 
-            ec2.create_network_acl_entry(
+            self._aws_call(ec2.create_network_acl_entry,
                 NetworkAclId=self._quarantine_nacl,
                 RuleNumber=ingress_rule,
                 Protocol="-1",
@@ -323,7 +348,7 @@ class AwsContainmentAdapter:
                 Egress=False,
                 CidrBlock=f"{t}/32",
             )
-            ec2.create_network_acl_entry(
+            self._aws_call(ec2.create_network_acl_entry,
                 NetworkAclId=self._quarantine_nacl,
                 RuleNumber=egress_rule,
                 Protocol="-1",
@@ -352,7 +377,7 @@ class AwsContainmentAdapter:
                     }
                 }]
             }, separators=(",", ":"))
-            self._iam_client().put_role_policy(
+            self._aws_call(self._iam_client().put_role_policy,
                 RoleName=t,
                 PolicyName="aegis-revoke-sessions",
                 PolicyDocument=policy_doc
@@ -362,6 +387,6 @@ class AwsContainmentAdapter:
                 f"iam.delete_role_policy(RoleName='{t}', PolicyName='aegis-revoke-sessions')"
             )
         if ac == ActionClass.TERMINATE_INSTANCE:
-            self._ec2_client().terminate_instances(InstanceIds=[t])
+            self._aws_call(self._ec2_client().terminate_instances, InstanceIds=[t])
             return (f"instance {t} termination requested", "IRREVERSIBLE — restore from AMI/snapshot")
         raise NotImplementedError(f"real AWS execution for {ac.value} not enabled in this slice")
