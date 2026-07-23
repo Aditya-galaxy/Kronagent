@@ -105,11 +105,11 @@ run "$PY" promote.py list
 pause 2
 
 # -------------------------------------------------------------------------- #
-banner "ACT 2 — Detection + graduated autonomy (AWS + Kubernetes)"
-say "Live findings arrive from two totally different substrates: AWS GuardDuty"
-say "(IAM/EC2) and Kubernetes audit events (pods/nodes/deployments). Each flows"
-say "through the SAME pipeline: triage (deterministic + LLM) -> a deterministic"
-say "policy engine that gates every action by reversibility and blast radius."
+banner "ACT 2 — Multi-cloud detection + graduated autonomy (AWS + K8s + GCP)"
+say "Live findings arrive from multi-cloud substrates: AWS GuardDuty (IAM/EC2),"
+say "Kubernetes audit events (pods/nodes), and GCP Security Command Center (IAM/VMs)."
+say "Each flows through the SAME pipeline: triage (deterministic + LLM) -> threat intel"
+say "(MITRE ATT&CK + STIX feeds) -> a deterministic policy engine that gates actions."
 say ""
 say "Watch what the policy engine does: reversible, single-resource actions are"
 say "AUTO-eligible; destructive ones (terminate instance, delete pod, scale to"
@@ -131,12 +131,13 @@ if have_testbed; then
   say "queue; the platform long-polls and drives each one through the full pipeline."
   export AWS_ACCESS_KEY_ID=testing AWS_SECRET_ACCESS_KEY=testing AWS_SESSION_TOKEN=testing
   TB_PORT=5057
-  "$PY" testbed/sqs_emulator.py serve --port "$TB_PORT" > /tmp/aegis_demo_testbed.log 2>&1 &
+  mkdir -p ./.demo_tmp
+  "$PY" testbed/sqs_emulator.py serve --port "$TB_PORT" > ./.demo_tmp/aegis_demo_testbed.log 2>&1 &
   TB_PID=$!
   # Wait for the queue URL to appear.
   TB_QURL=""
   for _ in $(seq 1 30); do
-    TB_QURL="$(grep -m1 'Queue URL' /tmp/aegis_demo_testbed.log 2>/dev/null | awk '{print $NF}')"
+    TB_QURL="$( (grep -m1 'Queue URL' ./.demo_tmp/aegis_demo_testbed.log 2>/dev/null || true) | awk '{print $NF}')"
     [ -n "$TB_QURL" ] && break; sleep 0.3
   done
   if [ -n "$TB_QURL" ]; then
@@ -145,23 +146,26 @@ if have_testbed; then
     # stop it the same way Ctrl-C would (it drains gracefully).
     AEGIS_SQS_ENDPOINT_URL="http://localhost:$TB_PORT" AEGIS_SQS_QUEUE_URL="$TB_QURL" \
       AEGIS_SQS_WAIT_SECONDS=2 \
-      AEGIS_AUDIT_PATH=/tmp/aegis_demo_live.jsonl \
-      AEGIS_APPROVAL_PATH=/tmp/aegis_demo_live_appr.json \
-      AEGIS_ALLOWLIST_PATH=/tmp/aegis_demo_live_allow.json \
+      AEGIS_AUDIT_PATH=./.demo_tmp/aegis_demo_live.jsonl \
+      AEGIS_APPROVAL_PATH=./.demo_tmp/aegis_demo_live_appr.json \
+      AEGIS_ALLOWLIST_PATH=./.demo_tmp/aegis_demo_live_allow.json \
       "$PY" run_slice.py &
     LIVE_PID=$!
     sleep 12
-    kill -INT "$LIVE_PID" 2>/dev/null || true
-    # Bounded graceful shutdown: give the drain a few seconds, then hard-stop so
-    # the demo can never hang on an in-flight LLM call.
+    set +e
+    kill -INT "$LIVE_PID" 2>/dev/null
     for _ in $(seq 1 12); do kill -0 "$LIVE_PID" 2>/dev/null || break; sleep 0.5; done
-    kill -9 "$LIVE_PID" 2>/dev/null || true
-    wait "$LIVE_PID" 2>/dev/null || true
+    kill -9 "$LIVE_PID" 2>/dev/null
+    wait "$LIVE_PID" 2>/dev/null
+    set -e
   else
     say "(emulator did not start in time; skipping the live act)"
   fi
-  kill "$TB_PID" 2>/dev/null || true; wait "$TB_PID" 2>/dev/null || true
-  rm -f /tmp/aegis_demo_testbed.log /tmp/aegis_demo_live*.jsonl /tmp/aegis_demo_live*.json
+  set +e
+  kill "$TB_PID" 2>/dev/null
+  wait "$TB_PID" 2>/dev/null
+  set -e
+  rm -rf ./.demo_tmp
 else
   say "Live-ingestion act skipped — the local SQS testbed isn't installed."
   say "Enable it with:  python3 -m pip install -r testbed/requirements.txt"
@@ -199,7 +203,7 @@ fi
 pause 3
 
 # -------------------------------------------------------------------------- #
-banner "ACT 5 — Tamper-evident audit (the compliance backbone)"
+banner "ACT 5 — Tamper-evident audit & OCSF SIEM export"
 say "Every decision and action — triage, policy, containment, approvals,"
 say "governance — is one hash-chained record. This is what EU AI Act Article 12"
 say "(automatic logging) and Article 14 (human oversight) require, and it's what"
@@ -220,14 +224,20 @@ print(f"     (edited record on line {i+1} of the copy — the content, not the h
 PYEOF
 run "$PY" -c "from aegis.audit import AuditLog; ok,b=AuditLog.verify('aegis_audit_tampered.jsonl'); print('  verification of tampered copy:', 'OK' if ok else f'>>> TAMPERING DETECTED at line {b} <<<')"
 rm -f aegis_audit_tampered.jsonl
+say ""
+say "Audit logs are normalized and exported to OCSF format for Splunk/Sentinel SIEM integration:"
+run "$PY" run_siem_export.py
+rm -f aegis_ocsf_export.jsonl
 pause 2
 
 # -------------------------------------------------------------------------- #
 banner "Recap — what makes this different"
-printf "   ${GREEN}✓${RESET} Detects across substrates (AWS + Kubernetes) through one engine\n"
+printf "   ${GREEN}✓${RESET} Multi-cloud detection (AWS + Kubernetes + GCP SCC) through one engine\n"
+printf "   ${GREEN}✓${RESET} Advisory Threat Intel (MITRE ATT&CK mapping + STIX/TAXII feed matching)\n"
 printf "   ${GREEN}✓${RESET} EXECUTES containment — most 'AI SOC' tools stop at investigation\n"
 printf "   ${GREEN}✓${RESET} Graduated autonomy: reversible auto-acts, destructive needs a human\n"
 printf "   ${GREEN}✓${RESET} Earn-trust governance — promote one action class at a time, audited\n"
-printf "   ${GREEN}✓${RESET} Tamper-evident audit trail — compliance-ready (EU AI Act Art. 12/14)\n"
+printf "   ${GREEN}✓${RESET} Tamper-evident audit trail & OCSF SIEM export (EU AI Act Art. 12/14)\n"
 printf "\n   ${DIM}Everything shown ran in dry-run. The same paths execute for real against a\n"
 printf "   live account once an action class is promoted and AEGIS_DRY_RUN=false.${RESET}\n\n"
+
