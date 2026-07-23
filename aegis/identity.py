@@ -146,6 +146,17 @@ class LocalIdentityProvider:
             except json.JSONDecodeError:
                 return {}
 
+    def get_operator(self, operator_id: str) -> Optional[Operator]:
+        record = self._load().get(operator_id)
+        if record is None:
+            return None
+        return Operator(
+            operator_id=operator_id,
+            display_name=record.get("display_name", operator_id),
+            roles=list(record.get("roles", [])),
+            active=bool(record.get("active", True)),
+        )
+
     def authenticate(self, operator_id: str, token: Optional[str]) -> Optional[Operator]:
         record = self._load().get(operator_id)
         if record is None or not record.get("active", True):

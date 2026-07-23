@@ -13,7 +13,7 @@ import asyncio
 from typing import Literal, Optional, Any
 from pydantic import BaseModel, Field
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -368,4 +368,191 @@ def get_dashboard_metrics() -> dict[str, int]:
         "total_pending": len(pending_list),
         "total_autonomous_actions": total_autonomous,
         "total_human_overridden_actions": total_human_approved
+    }
+
+
+@app.post("/api/slack/interactive")
+async def slack_interactive(request: Request) -> dict[str, Any]:
+    """
+    Handle interactive button clicks from Slack approval messages.
+    """
+    body_bytes = await request.body()
+    headers = request.headers
+    signature = headers.get("X-Slack-Signature", "")
+    timestamp = headers.get("X-Slack-Request-Timestamp", "")
+
+    # 1. Verify Slack request signature (HMAC-SHA256)
+    if settings.slack_signing_secret:
+        from .chatops import verify_slack_signature
+        if not verify_slack_signature(settings.slack_signing_secret, body_bytes, timestamp, signature):
+            raise HTTPException(status_code=401, detail="Invalid Slack signature.")
+
+    # 2. Parse form-url-encoded payload
+    import urllib.parse
+    form_data = urllib.parse.parse_qs(body_bytes.decode("utf-8"))
+    payload_str_list = form_data.get("payload")
+    if not payload_str_list:
+        raise HTTPException(status_code=400, detail="Missing interactive payload.")
+
+    try:
+        payload = json.loads(payload_str_list[0])
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Malformed interactive JSON payload.")
+
+    # 3. Extract operator details
+    slack_user_id = payload.get("user", {}).get("id", "")
+    slack_username = payload.get("user", {}).get("name", "") or payload.get("user", {}).get("username", "unknown")
+    operator_id = settings.slack_user_mapping.get(slack_user_id, slack_user_id)
+
+    # 4. Resolve local identity permissions
+    from .identity import LocalIdentityProvider, Permission, Operator, AuthContext
+    
+    operator = None
+    if settings.operator_registry_path:
+        provider = LocalIdentityProvider(settings.operator_registry_path)
+        operator = provider.get_operator(operator_id)
+        if operator is None:
+            return {
+                "response_type": "ephemeral",
+                "text": f"❌ Authentication failed: Slack user mapping '{operator_id}' not found in operator registry."
+            }
+        if not operator.active:
+            return {
+                "response_type": "ephemeral",
+                "text": f"❌ Authentication failed: Operator '{operator_id}' is marked inactive."
+            }
+        if Permission.APPROVE not in operator.permissions():
+            return {
+                "response_type": "ephemeral",
+                "text": f"❌ Authorization failed: Operator '{operator_id}' lacks approval permissions."
+            }
+        identity_verified = True
+    else:
+        # Default unauthenticated/fallback mode: map Slack operator with administrator role
+        operator = Operator(
+            operator_id=operator_id,
+            display_name=slack_username,
+            roles=["admin"],
+            active=True
+        )
+        identity_verified = False
+
+    actor = AuthContext(
+        operator_id=operator.operator_id,
+        display_name=operator.display_name,
+        roles=operator.roles,
+        identity_verified=identity_verified,
+        auth_method="slack_sso"
+    )
+
+    # 5. Extract action decision
+    actions = payload.get("actions", [])
+    if not actions:
+        raise HTTPException(status_code=400, detail="No action element found.")
+
+    action_element = actions[0]
+    action_id = action_element.get("action_id")
+    request_id = action_element.get("value")
+
+    r = approval_store.get(request_id)
+    if r is None:
+        return {
+            "response_type": "ephemeral",
+            "text": f"❌ Request ID '{request_id}' not found in approval store."
+        }
+
+    if r.status != "pending":
+        return {
+            "response_type": "ephemeral",
+            "text": f"⚠️ Request is already processed: status is '{r.status}'."
+        }
+
+    action_type = "approve" if action_id == "approve_action" else "deny"
+
+    # 6. Execute decision flow
+    if action_type == "deny":
+        r.status = "denied"
+        r.decided_by = actor.operator_id
+        r.decided_at = now_iso()
+        r.decision_reason = "Rejected via Slack ChatOps"
+        approval_store.update(r)
+
+        await audit_log.record(AuditRecord(
+            finding_id=r.finding_id,
+            stage="approval",
+            payload={
+                "request_id": r.request_id,
+                "decision": "denied",
+                "reason": "Rejected via Slack ChatOps",
+                "action_class": r.action_class.value,
+                "target": r.target,
+                **actor.audit_fields()
+            }
+        ))
+        status_text = f"Rejected via Slack by @{slack_username}"
+    else:
+        if settings.kill_switch:
+            return {
+                "response_type": "ephemeral",
+                "text": "❌ Command execution aborted: global Aegis KILL SWITCH is ENGAGED."
+            }
+
+        # Setup decision context
+        decision = PolicyDecision(
+            action_class=r.action_class,
+            disposition="auto_execute",
+            reason=f"approved via Slack ChatOps by @{slack_username}",
+            reversible=r.reversible,
+            blast_radius=BlastRadius(r.blast_radius),
+        )
+        action = r.to_proposed_action()
+        containment = ContainmentExecutor(settings, build_containment_adapters(settings))
+
+        # Record approval event
+        await audit_log.record(AuditRecord(
+            finding_id=r.finding_id,
+            stage="approval",
+            payload={
+                "request_id": r.request_id,
+                "decision": "approved",
+                "reason": "Approved via Slack ChatOps",
+                "action_class": r.action_class.value,
+                "target": r.target,
+                **actor.audit_fields()
+            }
+        ))
+
+        # Execute containment
+        outcome = await containment.execute(action, decision)
+
+        # Record containment audit event
+        await audit_log.record(AuditRecord(
+            finding_id=r.finding_id,
+            stage="containment",
+            payload={"request_id": r.request_id, **outcome.model_dump()}
+        ))
+
+        r.decided_by = actor.operator_id
+        r.decided_at = now_iso()
+        r.decision_reason = "Approved via Slack ChatOps"
+        r.execution_detail = outcome.detail
+
+        if outcome.executed:
+            r.status = "executed"
+        elif outcome.error:
+            r.status = "failed"
+        else:
+            r.status = "approved"  # Dry-run
+
+        approval_store.update(r)
+        status_text = f"Approved & {r.status} via Slack by @{slack_username} ({outcome.detail})"
+
+    # 7. Format updated message blocks
+    from .chatops import ChatOpsNotifier
+    updated_blocks = ChatOpsNotifier.build_slack_blocks(r, status_text)
+
+    return {
+        "replace_original": True,
+        "text": f"Aegis Approval Request Updated: {status_text}",
+        "blocks": updated_blocks
     }
