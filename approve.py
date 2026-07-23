@@ -45,6 +45,11 @@ def _resolve(settings: Settings, audit: AuditLog, args: argparse.Namespace,
             by=getattr(args, "by", None),
             operator_id=getattr(args, "as_operator", None),
             token=getattr(args, "token", None) or os.getenv("AEGIS_OPERATOR_TOKEN"),
+            oidc_issuer=settings.oidc_issuer,
+            oidc_audience=settings.oidc_audience,
+            oidc_jwks_uri=settings.oidc_jwks_uri,
+            oidc_verify_signature=settings.oidc_verify_signature,
+            oidc_roles_claim=settings.oidc_roles_claim,
         )
     except AuthorizationError as exc:
         asyncio.run(audit.record(AuditRecord(
