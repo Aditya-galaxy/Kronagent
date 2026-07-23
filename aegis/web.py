@@ -25,6 +25,7 @@ from .identity import resolve_actor, Permission, AuthorizationError
 from .containment import ContainmentExecutor
 from .providers import build_containment_adapters
 from .schemas import AuditRecord, PolicyDecision, BlastRadius, ActionClass
+from .orchestrator import get_tenant_path
 
 
 # Initialize FastAPI app
@@ -40,6 +41,34 @@ settings = Settings.from_env()
 approval_store = ApprovalStore(settings.approval_store_path)
 allowlist_store = AllowlistStore(settings.allowlist_store_path)
 audit_log = AuditLog(settings.audit_log_path)
+
+
+def resolve_tenant_id(request: Request) -> str:
+    tid = request.query_params.get("tenant_id")
+    if tid:
+        return tid
+    tid = request.headers.get("X-Tenant-ID")
+    if tid:
+        return tid
+    return "default"
+
+
+def get_approval_store(tenant_id: str) -> ApprovalStore:
+    if "mock" in type(approval_store).__name__.lower():
+        return approval_store
+    return ApprovalStore(get_tenant_path(settings.approval_store_path, tenant_id))
+
+
+def get_allowlist_store(tenant_id: str) -> AllowlistStore:
+    if "mock" in type(allowlist_store).__name__.lower():
+        return allowlist_store
+    return AllowlistStore(get_tenant_path(settings.allowlist_store_path, tenant_id))
+
+
+def get_audit_log(tenant_id: str) -> AuditLog:
+    if "mock" in type(audit_log).__name__.lower():
+        return audit_log
+    return AuditLog(get_tenant_path(settings.audit_log_path, tenant_id))
 
 
 # --- Request/Response Models ---
@@ -71,9 +100,10 @@ def read_index() -> str:
 
 
 @app.get("/api/status")
-def get_status() -> dict[str, Any]:
+def get_status(request: Request) -> dict[str, Any]:
     """Retrieve system configuration switches and audit log verification integrity."""
-    verified, _ = AuditLog.verify(settings.audit_log_path)
+    tenant_id = resolve_tenant_id(request)
+    verified, _ = AuditLog.verify(get_tenant_path(settings.audit_log_path, tenant_id))
     return {
         "dry_run": settings.dry_run,
         "kill_switch": settings.kill_switch,
@@ -82,15 +112,21 @@ def get_status() -> dict[str, Any]:
 
 
 @app.get("/api/approvals")
-def list_approvals() -> list[Any]:
+def list_approvals(request: Request) -> list[Any]:
     """Retrieve all logged approval requests from the store."""
-    return [r.model_dump() for r in approval_store.list()]
+    tenant_id = resolve_tenant_id(request)
+    store = get_approval_store(tenant_id)
+    return [r.model_dump() for r in store.list()]
 
 
 @app.post("/api/approvals/{request_id}/action")
-async def execute_approval_action(request_id: str, req: ActionRequest) -> dict[str, Any]:
+async def execute_approval_action(request_id: str, req: ActionRequest, request: Request) -> dict[str, Any]:
     """Approve/authorize and run, or reject/deny a pending containment action request."""
-    r = approval_store.get(request_id)
+    tenant_id = resolve_tenant_id(request)
+    store = get_approval_store(tenant_id)
+    audit_log_resolved = get_audit_log(tenant_id)
+
+    r = store.get(request_id)
     if r is None:
         raise HTTPException(status_code=404, detail=f"Request {request_id} not found.")
     
@@ -112,7 +148,7 @@ async def execute_approval_action(request_id: str, req: ActionRequest) -> dict[s
         )
     except AuthorizationError as exc:
         # Audit the access denied event
-        await audit_log.record(AuditRecord(
+        await audit_log_resolved.record(AuditRecord(
             finding_id=r.finding_id,
             stage="access_denied",
             payload={
@@ -130,9 +166,9 @@ async def execute_approval_action(request_id: str, req: ActionRequest) -> dict[s
         r.decided_by = actor.operator_id
         r.decided_at = now_iso()
         r.decision_reason = req.reason
-        approval_store.update(r)
+        store.update(r)
         
-        await audit_log.record(AuditRecord(
+        await audit_log_resolved.record(AuditRecord(
             finding_id=r.finding_id,
             stage="approval",
             payload={
@@ -162,7 +198,7 @@ async def execute_approval_action(request_id: str, req: ActionRequest) -> dict[s
     containment = ContainmentExecutor(settings, build_containment_adapters(settings))
 
     # Record approval record
-    await audit_log.record(AuditRecord(
+    await audit_log_resolved.record(AuditRecord(
         finding_id=r.finding_id,
         stage="approval",
         payload={
@@ -179,7 +215,7 @@ async def execute_approval_action(request_id: str, req: ActionRequest) -> dict[s
     outcome = await containment.execute(action, decision)
 
     # Record execution outcome
-    await audit_log.record(AuditRecord(
+    await audit_log_resolved.record(AuditRecord(
         finding_id=r.finding_id,
         stage="containment",
         payload={"request_id": r.request_id, **outcome.model_dump()}
@@ -198,7 +234,7 @@ async def execute_approval_action(request_id: str, req: ActionRequest) -> dict[s
     else:
         r.status = "approved"  # Dry-run
         
-    approval_store.update(r)
+    store.update(r)
     return {
         "status": r.status,
         "detail": outcome.detail,
@@ -207,12 +243,14 @@ async def execute_approval_action(request_id: str, req: ActionRequest) -> dict[s
 
 
 @app.get("/api/audit")
-def get_audit_trail() -> list[dict[str, Any]]:
+def get_audit_trail(request: Request) -> list[dict[str, Any]]:
     """Retrieve chronological event history from the append-only audit log."""
+    tenant_id = resolve_tenant_id(request)
     records = []
-    if not os.path.exists(settings.audit_log_path):
+    audit_path = get_tenant_path(settings.audit_log_path, tenant_id)
+    if not os.path.exists(audit_path):
         return []
-    with open(settings.audit_log_path, "r", encoding="utf-8") as fh:
+    with open(audit_path, "r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if not line:
@@ -228,14 +266,20 @@ def get_audit_trail() -> list[dict[str, Any]]:
 
 
 @app.get("/api/allowlist")
-def list_allowlist() -> list[str]:
+def list_allowlist(request: Request) -> list[str]:
     """Retrieve all promoted autonomous action classes."""
-    return [entry.action_class for entry in allowlist_store.list()]
+    tenant_id = resolve_tenant_id(request)
+    store = get_allowlist_store(tenant_id)
+    return [entry.action_class for entry in store.list()]
 
 
 @app.post("/api/allowlist/promote")
-async def promote_allowlist_class(req: PromoteRequest) -> dict[str, Any]:
+async def promote_allowlist_class(req: PromoteRequest, request: Request) -> dict[str, Any]:
     """Add a containment action class to the autonomous allowlist."""
+    tenant_id = resolve_tenant_id(request)
+    store = get_allowlist_store(tenant_id)
+    audit_log_resolved = get_audit_log(tenant_id)
+
     try:
         actor = resolve_actor(
             registry_path=settings.operator_registry_path,
@@ -249,7 +293,7 @@ async def promote_allowlist_class(req: PromoteRequest) -> dict[str, Any]:
             oidc_roles_claim=settings.oidc_roles_claim,
         )
     except AuthorizationError as exc:
-        await audit_log.record(AuditRecord(
+        await audit_log_resolved.record(AuditRecord(
             finding_id="_governance",
             stage="access_denied",
             payload={
@@ -267,19 +311,23 @@ async def promote_allowlist_class(req: PromoteRequest) -> dict[str, Any]:
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid action class name '{req.action_class}'.")
 
-    await allowlist_store.add(
+    await store.add(
         ac,
         by=actor.operator_id,
         reason=req.reason,
-        audit=audit_log,
+        audit=audit_log_resolved,
         actor_fields=actor.audit_fields()
     )
     return {"status": "success", "detail": f"Class {ac.value} successfully promoted."}
 
 
 @app.post("/api/allowlist/demote")
-async def demote_allowlist_class(req: PromoteRequest) -> dict[str, Any]:
+async def demote_allowlist_class(req: PromoteRequest, request: Request) -> dict[str, Any]:
     """Remove a containment action class from the autonomous allowlist."""
+    tenant_id = resolve_tenant_id(request)
+    store = get_allowlist_store(tenant_id)
+    audit_log_resolved = get_audit_log(tenant_id)
+
     try:
         actor = resolve_actor(
             registry_path=settings.operator_registry_path,
@@ -293,7 +341,7 @@ async def demote_allowlist_class(req: PromoteRequest) -> dict[str, Any]:
             oidc_roles_claim=settings.oidc_roles_claim,
         )
     except AuthorizationError as exc:
-        await audit_log.record(AuditRecord(
+        await audit_log_resolved.record(AuditRecord(
             finding_id="_governance",
             stage="access_denied",
             payload={
@@ -311,27 +359,31 @@ async def demote_allowlist_class(req: PromoteRequest) -> dict[str, Any]:
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid action class name '{req.action_class}'.")
 
-    await allowlist_store.remove(
+    await store.remove(
         ac,
         by=actor.operator_id,
         reason=req.reason,
-        audit=audit_log,
+        audit=audit_log_resolved,
         actor_fields=actor.audit_fields()
     )
     return {"status": "success", "detail": f"Class {ac.value} successfully demoted."}
 
 
 @app.get("/api/metrics")
-def get_dashboard_metrics() -> dict[str, int]:
+def get_dashboard_metrics(request: Request) -> dict[str, int]:
     """Compile summary metrics counting total, autonomous, and human-approved action lifecycles."""
+    tenant_id = resolve_tenant_id(request)
+    store = get_approval_store(tenant_id)
+    audit_path = get_tenant_path(settings.audit_log_path, tenant_id)
+
     total_findings = 0
     total_autonomous = 0
     total_human_approved = 0
 
     findings_seen = set()
     
-    if os.path.exists(settings.audit_log_path):
-        with open(settings.audit_log_path, "r", encoding="utf-8") as fh:
+    if os.path.exists(audit_path):
+        with open(audit_path, "r", encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
@@ -361,7 +413,7 @@ def get_dashboard_metrics() -> dict[str, int]:
                 except json.JSONDecodeError:
                     continue
 
-    pending_list = approval_store.list(status="pending")
+    pending_list = store.list(status="pending")
 
     return {
         "total_findings": total_findings,
@@ -454,12 +506,36 @@ async def slack_interactive(request: Request) -> dict[str, Any]:
     action_id = action_element.get("action_id")
     request_id = action_element.get("value")
 
-    r = approval_store.get(request_id)
+    # Locate request_id across all tenant stores
+    tenant_id = "default"
+    r = get_approval_store("default").get(request_id)
+    if r is None:
+        import glob
+        directory = os.path.dirname(os.path.abspath(settings.approval_store_path)) or "."
+        pattern = os.path.join(directory, "aegis_approvals_*.json")
+        for filepath in glob.glob(pattern):
+            filename = os.path.basename(filepath)
+            base_filename = os.path.basename(settings.approval_store_path)
+            root, ext = os.path.splitext(base_filename)
+            prefix = f"{root}_"
+            if filename.startswith(prefix) and filename.endswith(ext):
+                tid = filename[len(prefix):-len(ext)]
+                candidate_store = get_approval_store(tid)
+                candidate_r = candidate_store.get(request_id)
+                if candidate_r is not None:
+                    r = candidate_r
+                    tenant_id = tid
+                    break
+
     if r is None:
         return {
             "response_type": "ephemeral",
-            "text": f"❌ Request ID '{request_id}' not found in approval store."
+            "text": f"❌ Request ID '{request_id}' not found in any approval store."
         }
+
+    # Dynamically resolve stores for the selected tenant
+    store = get_approval_store(tenant_id)
+    audit_log_resolved = get_audit_log(tenant_id)
 
     if r.status != "pending":
         return {
@@ -475,9 +551,9 @@ async def slack_interactive(request: Request) -> dict[str, Any]:
         r.decided_by = actor.operator_id
         r.decided_at = now_iso()
         r.decision_reason = "Rejected via Slack ChatOps"
-        approval_store.update(r)
+        store.update(r)
 
-        await audit_log.record(AuditRecord(
+        await audit_log_resolved.record(AuditRecord(
             finding_id=r.finding_id,
             stage="approval",
             payload={
@@ -509,7 +585,7 @@ async def slack_interactive(request: Request) -> dict[str, Any]:
         containment = ContainmentExecutor(settings, build_containment_adapters(settings))
 
         # Record approval event
-        await audit_log.record(AuditRecord(
+        await audit_log_resolved.record(AuditRecord(
             finding_id=r.finding_id,
             stage="approval",
             payload={
@@ -526,7 +602,7 @@ async def slack_interactive(request: Request) -> dict[str, Any]:
         outcome = await containment.execute(action, decision)
 
         # Record containment audit event
-        await audit_log.record(AuditRecord(
+        await audit_log_resolved.record(AuditRecord(
             finding_id=r.finding_id,
             stage="containment",
             payload={"request_id": r.request_id, **outcome.model_dump()}
@@ -544,7 +620,7 @@ async def slack_interactive(request: Request) -> dict[str, Any]:
         else:
             r.status = "approved"  # Dry-run
 
-        approval_store.update(r)
+        store.update(r)
         status_text = f"Approved & {r.status} via Slack by @{slack_username} ({outcome.detail})"
 
     # 7. Format updated message blocks

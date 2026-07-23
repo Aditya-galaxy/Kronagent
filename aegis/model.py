@@ -47,6 +47,7 @@ class Finding(BaseModel):
     finding_id: str
     finding_type: str             # provider-native type string, kept for context
     severity: float               # normalized 0-10 (higher = worse)
+    tenant_id: str = "default"    # tenant partition for multi-tenancy
     title: str = ""
     description: str = ""
     resources: list[ResourceRef] = Field(default_factory=list)

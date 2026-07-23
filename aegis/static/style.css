@@ -82,6 +82,45 @@ body {
     -webkit-text-fill-color: transparent;
 }
 
+/* Tenant Selector Dropdown */
+.tenant-selector-container {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 12px 24px 12px;
+}
+
+.tenant-selector-container label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+}
+
+.tenant-select-dropdown {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--border-radius);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    font-family: var(--font-main);
+    font-size: 14px;
+    outline: none;
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.tenant-select-dropdown:focus {
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 8px rgba(0, 242, 254, 0.2);
+}
+
+.tenant-select-dropdown option {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
 .nav-menu {
     display: flex;
     flex-direction: column;
