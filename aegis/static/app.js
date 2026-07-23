@@ -9,7 +9,9 @@ document.addEventListener("DOMContentLoaded", () => {
         metrics: {},
         approvals: [],
         audit: [],
-        allowlist: []
+        allowlist: [],
+        operatorId: sessionStorage.getItem("aegis_operator_id") || "",
+        token: sessionStorage.getItem("aegis_operator_token") || ""
     };
 
     // DOM Elements
@@ -56,7 +58,10 @@ document.addEventListener("DOMContentLoaded", () => {
         modalReasonGroup: document.getElementById("modal-reason-group"),
         authOperatorId: document.getElementById("auth-operator-id"),
         authToken: document.getElementById("auth-token"),
-        authReason: document.getElementById("auth-reason")
+        authReason: document.getElementById("auth-reason"),
+        sidebarOperatorId: document.getElementById("sidebar-operator-id"),
+        sidebarOperatorToken: document.getElementById("sidebar-operator-token"),
+        sidebarAuthSave: document.getElementById("sidebar-auth-save")
     };
 
     // Helper functions
@@ -88,11 +93,23 @@ document.addEventListener("DOMContentLoaded", () => {
         return "Low";
     };
 
+    // Helper to get headers including optional operator credentials for VIEW permission
+    const getHeaders = () => {
+        const headers = { "X-Tenant-ID": state.activeTenant };
+        if (state.operatorId) {
+            headers["X-Operator-ID"] = state.operatorId;
+        }
+        if (state.token) {
+            headers["X-Operator-Token"] = state.token;
+        }
+        return headers;
+    };
+
     // API fetches
     const fetchStatus = async () => {
         try {
             const res = await fetch("/api/status", {
-                headers: { "X-Tenant-ID": state.activeTenant }
+                headers: getHeaders()
             });
             state.status = await res.json();
             updateStatusUI();
@@ -104,7 +121,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const fetchMetrics = async () => {
         try {
             const res = await fetch("/api/metrics", {
-                headers: { "X-Tenant-ID": state.activeTenant }
+                headers: getHeaders()
             });
             state.metrics = await res.json();
             updateMetricsUI();
@@ -116,7 +133,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const fetchApprovals = async () => {
         try {
             const res = await fetch("/api/approvals", {
-                headers: { "X-Tenant-ID": state.activeTenant }
+                headers: getHeaders()
             });
             state.approvals = await res.json();
             updateApprovalsUI();
@@ -128,7 +145,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const fetchAudit = async () => {
         try {
             const res = await fetch("/api/audit", {
-                headers: { "X-Tenant-ID": state.activeTenant }
+                headers: getHeaders()
             });
             state.audit = await res.json();
             updateAuditUI();
@@ -140,7 +157,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const fetchAllowlist = async () => {
         try {
             const res = await fetch("/api/allowlist", {
-                headers: { "X-Tenant-ID": state.activeTenant }
+                headers: getHeaders()
             });
             state.allowlist = await res.json();
             updateAllowlistUI();
@@ -562,6 +579,25 @@ document.addEventListener("DOMContentLoaded", () => {
             refreshData();
         }
     }, 8000);
+
+    // Initialize sidebar inputs from state
+    if (elements.sidebarOperatorId && elements.sidebarOperatorToken) {
+        elements.sidebarOperatorId.value = state.operatorId;
+        elements.sidebarOperatorToken.value = state.token;
+    }
+
+    if (elements.sidebarAuthSave) {
+        elements.sidebarAuthSave.addEventListener("click", () => {
+            const opId = elements.sidebarOperatorId.value.trim();
+            const tok = elements.sidebarOperatorToken.value.trim();
+            sessionStorage.setItem("aegis_operator_id", opId);
+            sessionStorage.setItem("aegis_operator_token", tok);
+            state.operatorId = opId;
+            state.token = tok;
+            refreshData();
+            alert("Credentials applied to session.");
+        });
+    }
 
     // Initial load
     refreshData();

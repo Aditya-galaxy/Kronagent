@@ -236,7 +236,9 @@ async def evaluate_pipeline(dataset_path: str, use_live: bool, allowlist_classes
         llm = MockGeminiClient(dataset)
         print("Using mock client (deterministic dataset labels) for evaluation.")
         
-    triage = TriageEngine(llm)
+    from aegis.crypto import get_signer
+    signer = get_signer(settings)
+    triage = TriageEngine(llm, signer)
     threat_intel = ThreatIntelAgent(llm)
     correlation = CorrelationAgent(llm)
     commander = IncidentCommanderAgent(llm)

@@ -33,7 +33,9 @@ async def run_check() -> int:
 
     audit = AuditLog(settings.audit_log_path)
     allowlist = AllowlistStore(settings.allowlist_store_path, seed=settings.auto_execute_allowlist)
-    triage = TriageEngine(None)  # deterministic fallback
+    from aegis.crypto import get_signer
+    signer = get_signer(settings)
+    triage = TriageEngine(None, signer)  # deterministic fallback
     threat_intel = ThreatIntelAgent(None)
     correlation = CorrelationAgent(None)
     commander = IncidentCommanderAgent(None)

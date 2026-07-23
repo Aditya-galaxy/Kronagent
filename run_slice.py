@@ -79,7 +79,9 @@ async def main(replay: list[tuple[str, str]]) -> int:
 
     audit = AuditLog(settings.audit_log_path)
     allowlist = AllowlistStore(settings.allowlist_store_path, seed=settings.auto_execute_allowlist)
-    triage = TriageEngine(llm)
+    from aegis.crypto import get_signer
+    signer = get_signer(settings)
+    triage = TriageEngine(llm, signer)
     threat_intel = ThreatIntelAgent(llm)  # same LLM client; degrades if unavailable
     correlation = CorrelationAgent(llm)   # campaign correlation across the finding window
     commander = IncidentCommanderAgent(llm)  # synthesis + escalation (advisory)

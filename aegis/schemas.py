@@ -12,9 +12,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from .crypto import Signer
 
 
 def utcnow_iso() -> str:
@@ -64,6 +67,38 @@ class TriageVerdict(BaseModel):
     severity: float
     justification: str
     correlated_signals: list[str] = Field(default_factory=list)
+    signature: Optional[str] = None
+
+    def compute_signature_payload(self) -> bytes:
+        import json
+        payload_dict = {
+            "finding_id": self.finding_id,
+            "is_actionable_threat": self.is_actionable_threat,
+            "threat_category": self.threat_category,
+            "confidence": self.confidence,
+            "severity": self.severity,
+            "justification": self.justification,
+            "correlated_signals": self.correlated_signals,
+        }
+        return json.dumps(payload_dict, sort_keys=True).encode("utf-8")
+
+    def with_signature(self, signer: "Signer") -> "TriageVerdict":
+        import base64
+        payload = self.compute_signature_payload()
+        sig_bytes = signer.sign(payload)
+        sig_b64 = base64.b64encode(sig_bytes).decode("utf-8")
+        return self.model_copy(update={"signature": sig_b64})
+
+    def verify_signature(self, signer: "Signer") -> bool:
+        import base64
+        if not self.signature:
+            return False
+        try:
+            sig_bytes = base64.b64decode(self.signature)
+            payload = self.compute_signature_payload()
+            return signer.verify(payload, sig_bytes)
+        except Exception:
+            return False
 
 
 class ProposedAction(BaseModel):

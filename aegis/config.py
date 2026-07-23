@@ -90,6 +90,8 @@ class Settings:
     db_path: str = ""
     max_workers: int = 1
     kms_key_id: str = ""
+    require_agent_signatures: bool = False
+    require_view_auth: bool = False
 
     # --- OIDC / SAML SSO ---
     oidc_issuer: str = ""
@@ -140,6 +142,8 @@ class Settings:
             db_path=db_path,
             max_workers=int(os.getenv("AEGIS_MAX_WORKERS", "1")),
             kms_key_id=os.getenv("AEGIS_KMS_KEY_ID", ""),
+            require_agent_signatures=_env_bool("AEGIS_REQUIRE_AGENT_SIGNATURES", False),
+            require_view_auth=_env_bool("AEGIS_REQUIRE_VIEW_AUTH", False),
             oidc_issuer=os.getenv("AEGIS_OIDC_ISSUER", ""),
             oidc_audience=os.getenv("AEGIS_OIDC_AUDIENCE", ""),
             oidc_jwks_uri=os.getenv("AEGIS_OIDC_JWKS_URI", ""),
