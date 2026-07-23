@@ -4,6 +4,8 @@ google-genai>=2.12
 python-dotenv>=1.2
 pyjwt>=2.8.0
 cryptography>=42.0.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
 
 # Real execution / live ingestion (dry-run and the test suite need neither --
 # every adapter imports these lazily):
