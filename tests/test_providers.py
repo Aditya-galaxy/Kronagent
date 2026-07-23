@@ -158,9 +158,9 @@ def test_plan_k8s_actions_secret_enumeration_has_no_planner_for_secrets(k8s_audi
 # Registry dispatch
 # --------------------------------------------------------------------------- #
 
-def test_registry_has_both_providers() -> None:
-    assert set(NORMALIZERS) == {"aws", "kubernetes"}
-    assert set(PLANNERS) == {"aws", "kubernetes"}
+def test_registry_has_all_providers() -> None:
+    assert set(NORMALIZERS) == {"aws", "gcp", "kubernetes"}
+    assert set(PLANNERS) == {"aws", "gcp", "kubernetes"}
 
 
 def test_plan_actions_dispatches_by_finding_provider(guardduty_findings, k8s_audit_events) -> None:
@@ -182,11 +182,13 @@ def test_plan_actions_unknown_provider_returns_empty_not_crash() -> None:
     assert plan_actions(finding) == []
 
 
-def test_build_containment_adapters_registers_both_providers() -> None:
+def test_build_containment_adapters_registers_all_providers() -> None:
+    from aegis.providers.gcp import GcpContainmentAdapter
     settings = Settings()
     adapters = build_containment_adapters(settings)
-    assert set(adapters) == {"aws", "kubernetes"}
+    assert set(adapters) == {"aws", "gcp", "kubernetes"}
     assert isinstance(adapters["aws"], AwsContainmentAdapter)
+    assert isinstance(adapters["gcp"], GcpContainmentAdapter)
     assert isinstance(adapters["kubernetes"], K8sContainmentAdapter)
 
 

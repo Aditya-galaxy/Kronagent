@@ -19,17 +19,19 @@ from typing import Callable
 from ..config import Settings
 from ..model import Finding
 from ..schemas import ProposedAction
-from . import aws, k8s
+from . import aws, gcp, k8s
 
 # native payload dict -> Finding
 NORMALIZERS: dict[str, Callable[[dict], Finding]] = {
     aws.PROVIDER: aws.normalize_guardduty,
+    gcp.PROVIDER: gcp.normalize_gcp_scc,
     k8s.PROVIDER: k8s.normalize_k8s,
 }
 
 # Finding -> candidate ProposedActions
 PLANNERS: dict[str, Callable[[Finding], list[ProposedAction]]] = {
     aws.PROVIDER: aws.plan_aws_actions,
+    gcp.PROVIDER: gcp.plan_gcp_actions,
     k8s.PROVIDER: k8s.plan_k8s_actions,
 }
 
@@ -43,6 +45,7 @@ def build_containment_adapters(settings: Settings) -> dict[str, object]:
             quarantine_security_group_id=settings.quarantine_security_group_id,
             quarantine_nacl_id=settings.quarantine_nacl_id,
         ),
+        gcp.PROVIDER: gcp.GcpContainmentAdapter(),
         k8s.PROVIDER: k8s.K8sContainmentAdapter(
             kubeconfig=settings.kubeconfig_path,
             context=settings.kube_context,

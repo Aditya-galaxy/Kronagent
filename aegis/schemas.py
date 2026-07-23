@@ -48,6 +48,11 @@ class ActionClass(str, Enum):
     DELETE_POD = "delete_pod"                      # kill the pod (controller reschedules)
     SCALE_DEPLOYMENT_ZERO = "scale_deployment_zero"  # take a workload to 0 replicas
 
+    # --- GCP ---
+    DISABLE_SERVICE_ACCOUNT_KEY = "disable_service_account_key"
+    DISABLE_SERVICE_ACCOUNT = "disable_service_account"
+    STOP_VM_INSTANCE = "stop_vm_instance"
+
 
 class BlastRadius(str, Enum):
     SINGLE_RESOURCE = "single_resource"  # affects exactly one principal/instance/pod
