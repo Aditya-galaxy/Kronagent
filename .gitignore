@@ -8,11 +8,6 @@ aegis_audit.jsonl
 aegis_approvals.json
 aegis_allowlist.json
 *.jsonl
-# Demo scratch state (demo_trajectory.py writes these; never real runtime data)
-aegis_trajectory_demo*.json
-
-# Presenter notes — kept local, not part of the repo
-DEMO_SCRIPT.md
 *.pem
 *.db
 
