@@ -89,10 +89,20 @@ async def main(replay: list[tuple[str, str]]) -> int:
     policy = PolicyEngine(settings, allowlist)
     containment = ContainmentExecutor(settings, build_containment_adapters(settings))
     approvals = ApprovalStore(settings.approval_store_path)
+    trajectory = None
+    if settings.trajectory_guard_enabled:
+        from aegis.trajectory import TrajectoryConfig, TrajectoryGuard
+        trajectory = TrajectoryGuard(TrajectoryConfig(
+            window_seconds=settings.trajectory_window_seconds,
+            max_auto_executions=settings.trajectory_max_auto_executions,
+            max_scope_violations=settings.trajectory_max_scope_violations,
+            enforce_scope=settings.trajectory_enforce_scope,
+        ))
     orchestrator = Orchestrator(
         settings, triage=triage, policy=policy, containment=containment,
         audit=audit, approvals=approvals, threat_intel=threat_intel,
         correlation=correlation, commander=commander, forensics=forensics,
+        trajectory=trajectory,
     )
 
     allowed = sorted(e.action_class for e in allowlist.list())
@@ -102,6 +112,13 @@ async def main(replay: list[tuple[str, str]]) -> int:
     _log("BOOT", f"auto-execute allowlist: {allowed or 'EMPTY (all actions need approval)'}")
     _log("BOOT", f"LLM agents (triage + threat-intel + correlation + commander): {llm_status}")
     _log("BOOT", "deterministic agents: forensics (evidence + chain of custody)")
+    if trajectory is not None:
+        _log("BOOT", f"trajectory guard: ARMED — scope_enforce={settings.trajectory_enforce_scope}, "
+                     f"max_auto={settings.trajectory_max_auto_executions}/"
+                     f"{settings.trajectory_window_seconds:.0f}s, "
+                     f"max_scope_violations={settings.trajectory_max_scope_violations}")
+    else:
+        _log("BOOT", "trajectory guard: DISABLED")
 
     queue: "asyncio.Queue[QueuedFinding]" = asyncio.Queue(maxsize=256)
     stop = asyncio.Event()
