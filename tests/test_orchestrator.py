@@ -99,13 +99,15 @@ def _queued(finding: Finding) -> tuple[QueuedFinding, Callable[[], int]]:
 
 
 def _orchestrator(settings, triage, policy, *, approvals=None, threat_intel=None,
-                  correlation=None, commander=None, forensics=None) -> tuple[Orchestrator, AuditLog]:
+                  correlation=None, commander=None, forensics=None,
+                  trajectory=None) -> tuple[Orchestrator, AuditLog]:
     audit = AuditLog(settings.audit_log_path)
     adapter = FakeContainmentAdapter(provider="kubernetes")
     containment = ContainmentExecutor(settings, {"kubernetes": adapter, "aws": adapter})
     orch = Orchestrator(settings, triage=triage, policy=policy, containment=containment,
                          audit=audit, approvals=approvals, threat_intel=threat_intel,
-                         correlation=correlation, commander=commander, forensics=forensics)
+                         correlation=correlation, commander=commander, forensics=forensics,
+                         trajectory=trajectory)
     return orch, audit
 
 
@@ -587,3 +589,89 @@ async def test_pipeline_works_with_neither_new_agent(settings) -> None:
     assert "command" not in stages
     assert "forensics" not in stages
     assert orch.processed == 1
+
+
+# --------------------------------------------------------------------------- #
+# Behavioral-trajectory guard wiring — the automatic kill switch, end to end
+# through the orchestrator (not just the guard in isolation).
+# --------------------------------------------------------------------------- #
+
+def _finding_with_resource(finding_id: str, kind: str, resource_id: str) -> Finding:
+    from aegis.model import ResourceRef
+    return Finding(
+        provider="kubernetes", finding_id=finding_id, finding_type="k8s:test", severity=8.0,
+        resources=[ResourceRef(kind=kind, id=resource_id, attributes={})],
+    )
+
+
+async def test_trajectory_scope_violation_blocks_before_policy(settings) -> None:
+    """An action redirected onto a resource the finding never implicated is
+    blocked by the guard BEFORE the policy engine ever sees it, and audited as a
+    scope violation. This is the prompt-injection-to-wrong-resource defense."""
+    from aegis.trajectory import TrajectoryConfig, TrajectoryGuard
+
+    guard = TrajectoryGuard(TrajectoryConfig(enforce_scope=True, max_scope_violations=1))
+    # Finding implicates pod-1; the candidate targets a DIFFERENT pod.
+    finding = _finding_with_resource("f-1", "k8s.pod", "pod-1")
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-victim-elsewhere")
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+    policy = FakePolicyEngine(disposition="auto_execute")
+    approvals = ApprovalStore(settings.approval_store_path)
+    orch, _ = _orchestrator(settings, triage, policy, approvals=approvals, trajectory=guard)
+    item, acked = _queued(finding)
+
+    await _drain(orch, [item])
+
+    assert policy.decide_calls == []          # blocked before the policy engine
+    assert approvals.list() == []             # never queued for a human either
+    stages = [json.loads(l)["record"]["stage"] for l in open(settings.audit_log_path) if l.strip()]
+    assert "trajectory_scope_violation" in stages
+    assert "containment" not in stages
+    assert acked() == 1                       # still fully handled + acked
+    assert guard.halted                       # max_scope_violations=1 latched it
+
+
+async def test_trajectory_in_scope_action_flows_normally(settings) -> None:
+    """The guard must not interfere with legitimate, in-scope actions."""
+    from aegis.trajectory import TrajectoryConfig, TrajectoryGuard
+
+    guard = TrajectoryGuard(TrajectoryConfig(enforce_scope=True))
+    finding = _finding_with_resource("f-1", "k8s.pod", "pod-1")
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")  # in scope
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+    policy = FakePolicyEngine(disposition="requires_approval")
+    approvals = ApprovalStore(settings.approval_store_path)
+    orch, _ = _orchestrator(settings, triage, policy, approvals=approvals, trajectory=guard)
+    item, _ = _queued(finding)
+
+    await _drain(orch, [item])
+
+    assert len(policy.decide_calls) == 1
+    assert len(approvals.list()) == 1
+    assert not guard.halted
+
+
+async def test_trajectory_runaway_halt_blocks_subsequent_actions(settings) -> None:
+    """Once the autonomous-execution ceiling is crossed the halt latches, and
+    every later action is blocked at the top of the loop — before the policy
+    engine — for the rest of the session."""
+    from aegis.trajectory import TrajectoryConfig, TrajectoryGuard
+
+    # Ceiling of 2: the 3rd auto-execution trips the halt; the 4th is blocked
+    # before policy. Scope enforcement off so it doesn't interfere.
+    guard = TrajectoryGuard(TrajectoryConfig(enforce_scope=False, max_auto_executions=2, window_seconds=60))
+    candidates = [_action("kubernetes", ActionClass.ISOLATE_POD, f"pod-{i}") for i in range(4)]
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=candidates)
+    policy = FakePolicyEngine(disposition="auto_execute")
+    orch, _ = _orchestrator(settings, triage, policy, trajectory=guard)
+    item, acked = _queued(_finding(finding_id="f-1"))
+
+    await _drain(orch, [item])
+
+    # Actions 1-3 reached the policy engine; the 3rd tripped the halt and the
+    # 4th was blocked before policy ran.
+    assert len(policy.decide_calls) == 3
+    assert guard.halted
+    stages = [json.loads(l)["record"]["stage"] for l in open(settings.audit_log_path) if l.strip()]
+    assert "trajectory_halt" in stages
+    assert acked() == 1
