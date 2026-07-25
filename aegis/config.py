@@ -93,6 +93,20 @@ class Settings:
     require_agent_signatures: bool = False
     require_view_auth: bool = False
 
+    # --- Behavioral-trajectory guard (the automatic kill switch) ---
+    # Aegis is itself an autonomous agent system holding production credentials.
+    # This guard watches Aegis's OWN action stream — not the telemetry it
+    # ingests — and latches a halt on a runaway burst of autonomous executions
+    # or repeated out-of-scope targeting (an action-redirection attack). It is
+    # deterministic (no LLM), so the backstop itself cannot be prompt-injected.
+    # On by default; scope enforcement blocks any action aimed at a resource not
+    # implicated by its own finding.
+    trajectory_guard_enabled: bool = True
+    trajectory_window_seconds: float = 60.0
+    trajectory_max_auto_executions: int = 25
+    trajectory_max_scope_violations: int = 3
+    trajectory_enforce_scope: bool = True
+
     # --- OIDC / SAML SSO ---
     oidc_issuer: str = ""
     oidc_audience: str = ""
@@ -144,6 +158,11 @@ class Settings:
             kms_key_id=os.getenv("AEGIS_KMS_KEY_ID", ""),
             require_agent_signatures=_env_bool("AEGIS_REQUIRE_AGENT_SIGNATURES", False),
             require_view_auth=_env_bool("AEGIS_REQUIRE_VIEW_AUTH", False),
+            trajectory_guard_enabled=_env_bool("AEGIS_TRAJECTORY_GUARD", True),
+            trajectory_window_seconds=float(os.getenv("AEGIS_TRAJECTORY_WINDOW_SECONDS", "60")),
+            trajectory_max_auto_executions=int(os.getenv("AEGIS_TRAJECTORY_MAX_AUTO", "25")),
+            trajectory_max_scope_violations=int(os.getenv("AEGIS_TRAJECTORY_MAX_SCOPE_VIOLATIONS", "3")),
+            trajectory_enforce_scope=_env_bool("AEGIS_TRAJECTORY_ENFORCE_SCOPE", True),
             oidc_issuer=os.getenv("AEGIS_OIDC_ISSUER", ""),
             oidc_audience=os.getenv("AEGIS_OIDC_AUDIENCE", ""),
             oidc_jwks_uri=os.getenv("AEGIS_OIDC_JWKS_URI", ""),

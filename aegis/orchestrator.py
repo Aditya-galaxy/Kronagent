@@ -25,6 +25,7 @@ from .intel import ThreatIntelAgent, ThreatIntelAssessment
 from .model import Finding
 from .policy import PolicyEngine
 from .schemas import AuditRecord
+from .trajectory import TrajectoryGuard
 from .triage import TriageEngine
 
 
@@ -62,6 +63,7 @@ class Orchestrator:
         correlation: CorrelationAgent | None = None,
         commander: IncidentCommanderAgent | None = None,
         forensics: ForensicsAgent | None = None,
+        trajectory: TrajectoryGuard | None = None,
     ) -> None:
         self._settings = settings
         self._triage = triage
@@ -73,6 +75,10 @@ class Orchestrator:
         self._correlation = correlation
         self._commander = commander
         self._forensics = forensics
+        # Behavioral-trajectory guard: the automatic kill switch over Aegis's own
+        # action stream. Session-scoped and shared across tenants/workers — a
+        # runaway is a property of this Aegis process, not of one tenant.
+        self._trajectory = trajectory
         # Session-scoped campaign memory cache per tenant
         self._tenant_memories: dict[str, CorrelationMemory] = {}
         # Session-scoped campaign memory: only maintained when a correlation
@@ -214,7 +220,35 @@ class Orchestrator:
                     _log("FORENSICS", f"{finding.finding_id}:   {it.kind} custody={it.custody_sha256[:12]}…")
 
         # 2 + 3. Policy decision and containment, per candidate action.
+        guard = self._trajectory
         for action in candidates:
+            # 2a. Behavioral-trajectory guard — the automatic kill switch over
+            # Aegis's OWN action stream, applied BEFORE the policy engine so a
+            # redirected or runaway action never reaches execution or the
+            # approval queue. Deterministic, so it cannot itself be injected.
+            if guard is not None:
+                if guard.halted:
+                    await tenant_audit.record(AuditRecord(
+                        finding_id=finding.finding_id, stage="trajectory_halt",
+                        payload={"blocked_action": action.model_dump(),
+                                 "halt_reason": guard.halt_reason},
+                    ))
+                    _log("TRAJECTORY", f"{finding.finding_id}: {action.action_class.value} BLOCKED — "
+                                       f"automatic kill switch engaged: {guard.halt_reason}")
+                    continue
+                scope_event = guard.check_scope(action, finding)
+                if scope_event is not None:
+                    await tenant_audit.record(AuditRecord(
+                        finding_id=finding.finding_id, stage="trajectory_scope_violation",
+                        payload=scope_event.model_dump(),
+                    ))
+                    _log("TRAJECTORY", f"{finding.finding_id}: {action.action_class.value} BLOCKED "
+                                       f"(out of scope) target={action.target} — {scope_event.reason}")
+                    if scope_event.halted:
+                        _log("TRAJECTORY", f"{finding.finding_id}: automatic kill switch ENGAGED — "
+                                           f"{guard.halt_reason}")
+                    continue
+
             import inspect
             sig = inspect.signature(self._policy.decide)
             if "allowlist" in sig.parameters:
@@ -225,6 +259,21 @@ class Orchestrator:
                 finding_id=finding.finding_id, stage="policy",
                 payload={"action": action.model_dump(), "decision": decision.model_dump()},
             ))
+
+            # 2b. Runaway-rate limit: count actions the pipeline is about to
+            # execute autonomously. Crossing the window ceiling latches the halt
+            # and blocks the very action that crossed it (fail safe — the
+            # runaway action does not slip through before the switch trips).
+            if guard is not None and decision.disposition == "auto_execute":
+                halt_event = guard.note_auto_execution(action, finding)
+                if halt_event is not None:
+                    await tenant_audit.record(AuditRecord(
+                        finding_id=finding.finding_id, stage="trajectory_halt",
+                        payload=halt_event.model_dump(),
+                    ))
+                    _log("TRAJECTORY", f"{finding.finding_id}: {action.action_class.value} BLOCKED — "
+                                       f"automatic kill switch ENGAGED: {guard.halt_reason}")
+                    continue
 
             outcome = await self._containment.execute(action, decision)
             await tenant_audit.record(AuditRecord(
