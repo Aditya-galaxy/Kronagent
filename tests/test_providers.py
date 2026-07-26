@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import pytest
 
-from aegis.providers import NORMALIZERS, PLANNERS, build_containment_adapters, plan_actions
-from aegis.providers.aws import AwsContainmentAdapter, normalize_guardduty, plan_aws_actions
-from aegis.providers.k8s import K8sContainmentAdapter, normalize_k8s, plan_k8s_actions
-from aegis.schemas import ActionClass
-from aegis.config import Settings
+from kronagent.providers import NORMALIZERS, PLANNERS, build_containment_adapters, plan_actions
+from kronagent.providers.aws import AwsContainmentAdapter, normalize_guardduty, plan_aws_actions
+from kronagent.providers.k8s import K8sContainmentAdapter, normalize_k8s, plan_k8s_actions
+from kronagent.schemas import ActionClass
+from kronagent.config import Settings
 
 # --------------------------------------------------------------------------- #
 # AWS / GuardDuty
@@ -27,7 +27,7 @@ def test_normalize_guardduty_access_key(guardduty_findings) -> None:
     finding = normalize_guardduty(raw)
 
     assert finding.provider == "aws"
-    assert finding.finding_id == "aegis-finding-cred-exfil-0001"
+    assert finding.finding_id == "kronagent-finding-cred-exfil-0001"
     assert finding.severity == 8.0
     assert finding.remote_ip == "185.220.101.7"
     kinds = {r.kind for r in finding.resources}
@@ -177,13 +177,13 @@ def test_plan_actions_dispatches_by_finding_provider(guardduty_findings, k8s_aud
 
 
 def test_plan_actions_unknown_provider_returns_empty_not_crash() -> None:
-    from aegis.model import Finding
+    from kronagent.model import Finding
     finding = Finding(provider="azure", finding_id="x", finding_type="t", severity=9.0)
     assert plan_actions(finding) == []
 
 
 def test_build_containment_adapters_registers_all_providers() -> None:
-    from aegis.providers.gcp import GcpContainmentAdapter
+    from kronagent.providers.gcp import GcpContainmentAdapter
     settings = Settings()
     adapters = build_containment_adapters(settings)
     assert set(adapters) == {"aws", "gcp", "kubernetes"}

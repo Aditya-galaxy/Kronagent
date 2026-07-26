@@ -1,8 +1,8 @@
 """
-Shared fixtures for the Aegis regression suite.
+Shared fixtures for the Kronagent regression suite.
 
 Every stateful fixture (audit log, allowlist, approvals) is rooted in
-`tmp_path` so tests never touch the real `aegis_*.json*` runtime files and
+`tmp_path` so tests never touch the real `kronagent_*.json*` runtime files and
 tests never see each other's state.
 """
 
@@ -14,11 +14,11 @@ from typing import Optional
 
 import pytest
 
-from aegis.allowlist import AllowlistStore
-from aegis.approvals import ApprovalStore
-from aegis.audit import AuditLog
-from aegis.config import Settings
-from aegis.schemas import PolicyDecision, ProposedAction
+from kronagent.allowlist import AllowlistStore
+from kronagent.approvals import ApprovalStore
+from kronagent.audit import AuditLog
+from kronagent.config import Settings
+from kronagent.schemas import PolicyDecision, ProposedAction
 
 SAMPLES_DIR = Path(__file__).resolve().parent.parent / "samples"
 
@@ -93,7 +93,7 @@ def make_decision(
     *, action_class, disposition: str, reversible: bool = True,
     blast_radius="single_resource", reason: str = "test reason",
 ) -> PolicyDecision:
-    from aegis.schemas import BlastRadius
+    from kronagent.schemas import BlastRadius
     return PolicyDecision(
         action_class=action_class, disposition=disposition, reason=reason,
         reversible=reversible,

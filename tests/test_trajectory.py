@@ -1,5 +1,5 @@
 """
-Behavioral-trajectory guard — the automatic kill switch over Aegis's OWN
+Behavioral-trajectory guard — the automatic kill switch over Kronagent's OWN
 action stream.
 
 These tests pin the three properties the guard exists to guarantee:
@@ -18,9 +18,9 @@ property is tested with exact synthetic clocks, not sleeps.
 
 from __future__ import annotations
 
-from aegis.model import Finding, ResourceRef
-from aegis.schemas import ActionClass
-from aegis.trajectory import (
+from kronagent.model import Finding, ResourceRef
+from kronagent.schemas import ActionClass
+from kronagent.trajectory import (
     TrajectoryConfig,
     TrajectoryEvent,
     TrajectoryGuard,

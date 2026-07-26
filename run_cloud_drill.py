@@ -6,8 +6,8 @@ import random
 import string
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
-from aegis.providers.aws import AwsContainmentAdapter
-from aegis.schemas import ProposedAction, ActionClass
+from kronagent.providers.aws import AwsContainmentAdapter
+from kronagent.schemas import ProposedAction, ActionClass
 
 # Helper to generate unique suffixes for resources
 def get_random_suffix(length: int = 8) -> str:
@@ -28,7 +28,7 @@ def check_live_credentials() -> bool:
 
 async def run_drill(region: str, mock_mode: bool):
     suffix = get_random_suffix()
-    user_name = f"aegis-drill-user-{suffix}"
+    user_name = f"kronagent-drill-user-{suffix}"
     
     iam = boto3.client("iam", region_name=region)
     ec2 = boto3.client("ec2", region_name=region)
@@ -69,7 +69,7 @@ async def run_drill(region: str, mock_mode: bool):
             action_class=ActionClass.ATTACH_DENY_ALL_TO_PRINCIPAL,
             target=user_name,
             provider="aws",
-            rationale="Aegis Cloud Drill"
+            rationale="Kronagent Cloud Drill"
         )
         print("[*] Executing containment action...")
         detail1, rollback1 = await adapter.perform(action1)
@@ -80,18 +80,18 @@ async def run_drill(region: str, mock_mode: bool):
         print("[*] Verifying resource state in AWS...")
         policies = iam.list_user_policies(UserName=user_name)
         policy_names = policies.get("PolicyNames", [])
-        if "aegis-quarantine-deny-all" not in policy_names:
+        if "kronagent-quarantine-deny-all" not in policy_names:
             raise RuntimeError("Verification failed: Deny-all policy is not attached to IAM User.")
         print("[+] SUCCESS: Deny-all policy verified on IAM User.")
         
         # Chaos Rollback Drill
         print("[*] Executing Chaos Rollback...")
-        iam.delete_user_policy(UserName=user_name, PolicyName="aegis-quarantine-deny-all")
+        iam.delete_user_policy(UserName=user_name, PolicyName="kronagent-quarantine-deny-all")
         
         # Verify rollback
         print("[*] Verifying rollback state...")
         policies = iam.list_user_policies(UserName=user_name)
-        if "aegis-quarantine-deny-all" in policies.get("PolicyNames", []):
+        if "kronagent-quarantine-deny-all" in policies.get("PolicyNames", []):
             raise RuntimeError("Verification failed: Deny-all policy was not deleted during rollback.")
         print("[+] SUCCESS: Rollback verified (Deny-all policy removed).")
         
@@ -104,7 +104,7 @@ async def run_drill(region: str, mock_mode: bool):
             target=access_key_id,
             provider="aws",
             parameters={"user_name": user_name},
-            rationale="Aegis Cloud Drill"
+            rationale="Kronagent Cloud Drill"
         )
         print("[*] Executing containment action...")
         detail2, rollback2 = await adapter.perform(action2)
@@ -139,7 +139,7 @@ async def run_drill(region: str, mock_mode: bool):
             action_class=ActionClass.BLOCK_IP,
             target="99.99.99.99",
             provider="aws",
-            rationale="Aegis Cloud Drill"
+            rationale="Kronagent Cloud Drill"
         )
         print("[*] Executing containment action...")
         detail3, rollback3 = await adapter.perform(action3)

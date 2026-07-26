@@ -13,10 +13,10 @@ from typing import Any, Optional
 
 import pytest
 
-from aegis.ingestion import FileReplaySource, QueuedFinding, SqsFindingSource
-from aegis.model import Finding
-from aegis.providers.aws import normalize_guardduty
-from aegis.providers.k8s import normalize_k8s
+from kronagent.ingestion import FileReplaySource, QueuedFinding, SqsFindingSource
+from kronagent.model import Finding
+from kronagent.providers.aws import normalize_guardduty
+from kronagent.providers.k8s import normalize_k8s
 
 MINIMAL_FINDING = {
     "Id": "f-1", "Type": "UnauthorizedAccess:IAMUser/X", "Severity": 8.0,

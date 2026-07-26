@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import pytest
 
-from aegis.allowlist import AllowlistStore
-from aegis.config import Settings
-from aegis.policy import PolicyEngine, _ACTION_PROPERTIES
-from aegis.schemas import ActionClass, BlastRadius
+from kronagent.allowlist import AllowlistStore
+from kronagent.config import Settings
+from kronagent.policy import PolicyEngine, _ACTION_PROPERTIES
+from kronagent.schemas import ActionClass, BlastRadius
 
 from .conftest import make_action
 

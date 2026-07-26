@@ -1,6 +1,6 @@
 {
   "Version": "2012-10-17",
-  "Id": "AegisContainmentLeastPrivilege",
+  "Id": "KronagentContainmentLeastPrivilege",
   "Statement": [
     {
       "Sid": "DisableAndReenableAccessKeys",
@@ -18,7 +18,7 @@
       "Resource": "arn:aws:iam::ACCOUNT_ID:user/*",
       "Condition": {
         "StringEquals": {
-          "iam:PolicyName": "aegis-quarantine-deny-all"
+          "iam:PolicyName": "kronagent-quarantine-deny-all"
         }
       }
     },
@@ -32,7 +32,7 @@
       "Resource": "arn:aws:iam::ACCOUNT_ID:role/*",
       "Condition": {
         "StringEquals": {
-          "iam:PolicyName": "aegis-revoke-sessions"
+          "iam:PolicyName": "kronagent-revoke-sessions"
         }
       }
     },

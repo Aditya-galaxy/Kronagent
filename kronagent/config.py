@@ -28,15 +28,39 @@ import os
 from dataclasses import dataclass, field
 
 
+# Settings were prefixed with the previous product name before the rename.
+# Read the current prefix first and fall back to the legacy one, so an existing
+# .env or a deployed config keeps working instead of silently reverting to
+# defaults — a silent revert here would re-enable dry-run or drop the
+# allowlist without anyone noticing.
+#
+# The legacy prefix is assembled rather than written as a literal: a naive
+# find-and-replace across the repo would otherwise rewrite it to the new
+# prefix and turn this whole function into a no-op. That is not hypothetical.
+_PREFIX = "KRONAGENT_"
+_LEGACY_PREFIX = "AEG" + "IS_"
+
+
+def _getenv(name: str, default: str | None = None) -> str | None:
+    val = os.environ.get(name)
+    if val is not None:
+        return val
+    if name.startswith(_PREFIX):
+        legacy = os.environ.get(_LEGACY_PREFIX + name[len(_PREFIX):])
+        if legacy is not None:
+            return legacy
+    return default
+
+
 def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
+    raw = _getenv(name)
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _env_set(name: str) -> frozenset[str]:
-    raw = os.getenv(name, "")
+    raw = _getenv(name, "") or ""
     return frozenset(x.strip() for x in raw.split(",") if x.strip())
 
 
@@ -78,13 +102,13 @@ class Settings:
     kube_context: str = ""
 
     # --- Audit, approvals & governance ---
-    audit_log_path: str = "aegis_audit.jsonl"
-    approval_store_path: str = "aegis_approvals.json"
-    allowlist_store_path: str = "aegis_allowlist.json"
+    audit_log_path: str = "kronagent_audit.jsonl"
+    approval_store_path: str = "kronagent_approvals.json"
+    allowlist_store_path: str = "kronagent_allowlist.json"
     # Operator registry for identity + RBAC. Empty (default) = unauthenticated
     # mode: approvals/promotions use free-text --by and are audited as
     # identity_verified=false. Point this at a registry (see operators.py /
-    # aegis.identity) to enforce authenticated, authorized, non-repudiable
+    # kronagent.identity) to enforce authenticated, authorized, non-repudiable
     # operator decisions.
     operator_registry_path: str = ""
     db_path: str = ""
@@ -94,8 +118,8 @@ class Settings:
     require_view_auth: bool = False
 
     # --- Behavioral-trajectory guard (the automatic kill switch) ---
-    # Aegis is itself an autonomous agent system holding production credentials.
-    # This guard watches Aegis's OWN action stream — not the telemetry it
+    # Kronagent is itself an autonomous agent system holding production credentials.
+    # This guard watches Kronagent's OWN action stream — not the telemetry it
     # ingests — and latches a halt on a runaway burst of autonomous executions
     # or repeated out-of-scope targeting (an action-redirection attack). It is
     # deterministic (no LLM), so the backstop itself cannot be prompt-injected.
@@ -122,12 +146,12 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        approval_path = os.getenv("AEGIS_APPROVAL_PATH", "aegis_approvals.json")
-        db_path = os.getenv("AEGIS_DB_PATH", "")
+        approval_path = os.getenv("KRONAGENT_APPROVAL_PATH", "kronagent_approvals.json")
+        db_path = os.getenv("KRONAGENT_DB_PATH", "")
         if not db_path and approval_path.endswith(".db"):
             db_path = approval_path
 
-        slack_user_mapping_str = os.getenv("AEGIS_SLACK_USER_MAPPING", "")
+        slack_user_mapping_str = os.getenv("KRONAGENT_SLACK_USER_MAPPING", "")
         slack_user_mapping = {}
         if slack_user_mapping_str:
             try:
@@ -136,40 +160,40 @@ class Settings:
                 pass
 
         return cls(
-            dry_run=_env_bool("AEGIS_DRY_RUN", True),
-            kill_switch=_env_bool("AEGIS_KILL_SWITCH", False),
-            auto_execute_allowlist=_env_set("AEGIS_AUTO_EXECUTE_ALLOWLIST"),
+            dry_run=_env_bool("KRONAGENT_DRY_RUN", True),
+            kill_switch=_env_bool("KRONAGENT_KILL_SWITCH", False),
+            auto_execute_allowlist=_env_set("KRONAGENT_AUTO_EXECUTE_ALLOWLIST"),
             min_severity_for_containment=float(
-                os.getenv("AEGIS_MIN_SEVERITY", "4.0")
+                os.getenv("KRONAGENT_MIN_SEVERITY", "4.0")
             ),
             aws_region=os.getenv("AWS_REGION", "us-east-1"),
-            quarantine_security_group_id=os.getenv("AEGIS_QUARANTINE_SG_ID", ""),
-            quarantine_nacl_id=os.getenv("AEGIS_QUARANTINE_NACL_ID", ""),
-            sqs_endpoint_url=os.getenv("AEGIS_SQS_ENDPOINT_URL", ""),
-            sqs_wait_seconds=int(os.getenv("AEGIS_SQS_WAIT_SECONDS", "20")),
-            kubeconfig_path=os.getenv("AEGIS_KUBECONFIG", ""),
-            kube_context=os.getenv("AEGIS_KUBE_CONTEXT", ""),
-            audit_log_path=os.getenv("AEGIS_AUDIT_PATH", "aegis_audit.jsonl"),
+            quarantine_security_group_id=os.getenv("KRONAGENT_QUARANTINE_SG_ID", ""),
+            quarantine_nacl_id=os.getenv("KRONAGENT_QUARANTINE_NACL_ID", ""),
+            sqs_endpoint_url=os.getenv("KRONAGENT_SQS_ENDPOINT_URL", ""),
+            sqs_wait_seconds=int(os.getenv("KRONAGENT_SQS_WAIT_SECONDS", "20")),
+            kubeconfig_path=os.getenv("KRONAGENT_KUBECONFIG", ""),
+            kube_context=os.getenv("KRONAGENT_KUBE_CONTEXT", ""),
+            audit_log_path=os.getenv("KRONAGENT_AUDIT_PATH", "kronagent_audit.jsonl"),
             approval_store_path=approval_path,
-            allowlist_store_path=os.getenv("AEGIS_ALLOWLIST_PATH", "aegis_allowlist.json"),
-            operator_registry_path=os.getenv("AEGIS_OPERATOR_REGISTRY", ""),
+            allowlist_store_path=os.getenv("KRONAGENT_ALLOWLIST_PATH", "kronagent_allowlist.json"),
+            operator_registry_path=os.getenv("KRONAGENT_OPERATOR_REGISTRY", ""),
             db_path=db_path,
-            max_workers=int(os.getenv("AEGIS_MAX_WORKERS", "1")),
-            kms_key_id=os.getenv("AEGIS_KMS_KEY_ID", ""),
-            require_agent_signatures=_env_bool("AEGIS_REQUIRE_AGENT_SIGNATURES", False),
-            require_view_auth=_env_bool("AEGIS_REQUIRE_VIEW_AUTH", False),
-            trajectory_guard_enabled=_env_bool("AEGIS_TRAJECTORY_GUARD", True),
-            trajectory_window_seconds=float(os.getenv("AEGIS_TRAJECTORY_WINDOW_SECONDS", "60")),
-            trajectory_max_auto_executions=int(os.getenv("AEGIS_TRAJECTORY_MAX_AUTO", "25")),
-            trajectory_max_scope_violations=int(os.getenv("AEGIS_TRAJECTORY_MAX_SCOPE_VIOLATIONS", "3")),
-            trajectory_enforce_scope=_env_bool("AEGIS_TRAJECTORY_ENFORCE_SCOPE", True),
-            oidc_issuer=os.getenv("AEGIS_OIDC_ISSUER", ""),
-            oidc_audience=os.getenv("AEGIS_OIDC_AUDIENCE", ""),
-            oidc_jwks_uri=os.getenv("AEGIS_OIDC_JWKS_URI", ""),
-            oidc_verify_signature=_env_bool("AEGIS_OIDC_VERIFY_SIGNATURE", True),
-            oidc_roles_claim=os.getenv("AEGIS_OIDC_ROLES_CLAIM", "roles"),
-            slack_bot_token=os.getenv("AEGIS_SLACK_BOT_TOKEN", ""),
-            slack_signing_secret=os.getenv("AEGIS_SLACK_SIGNING_SECRET", ""),
-            slack_channel_id=os.getenv("AEGIS_SLACK_CHANNEL_ID", ""),
+            max_workers=int(os.getenv("KRONAGENT_MAX_WORKERS", "1")),
+            kms_key_id=os.getenv("KRONAGENT_KMS_KEY_ID", ""),
+            require_agent_signatures=_env_bool("KRONAGENT_REQUIRE_AGENT_SIGNATURES", False),
+            require_view_auth=_env_bool("KRONAGENT_REQUIRE_VIEW_AUTH", False),
+            trajectory_guard_enabled=_env_bool("KRONAGENT_TRAJECTORY_GUARD", True),
+            trajectory_window_seconds=float(os.getenv("KRONAGENT_TRAJECTORY_WINDOW_SECONDS", "60")),
+            trajectory_max_auto_executions=int(os.getenv("KRONAGENT_TRAJECTORY_MAX_AUTO", "25")),
+            trajectory_max_scope_violations=int(os.getenv("KRONAGENT_TRAJECTORY_MAX_SCOPE_VIOLATIONS", "3")),
+            trajectory_enforce_scope=_env_bool("KRONAGENT_TRAJECTORY_ENFORCE_SCOPE", True),
+            oidc_issuer=os.getenv("KRONAGENT_OIDC_ISSUER", ""),
+            oidc_audience=os.getenv("KRONAGENT_OIDC_AUDIENCE", ""),
+            oidc_jwks_uri=os.getenv("KRONAGENT_OIDC_JWKS_URI", ""),
+            oidc_verify_signature=_env_bool("KRONAGENT_OIDC_VERIFY_SIGNATURE", True),
+            oidc_roles_claim=os.getenv("KRONAGENT_OIDC_ROLES_CLAIM", "roles"),
+            slack_bot_token=os.getenv("KRONAGENT_SLACK_BOT_TOKEN", ""),
+            slack_signing_secret=os.getenv("KRONAGENT_SLACK_SIGNING_SECRET", ""),
+            slack_channel_id=os.getenv("KRONAGENT_SLACK_CHANNEL_ID", ""),
             slack_user_mapping=slack_user_mapping,
         )

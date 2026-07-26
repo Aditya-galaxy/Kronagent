@@ -11,9 +11,9 @@ import sys
 import tempfile
 import pytest
 
-from aegis.ocsf import iso_to_epoch_ms, severity_to_ocsf, to_ocsf_event
-from aegis.audit import AuditLog
-from aegis.schemas import AuditRecord
+from kronagent.ocsf import iso_to_epoch_ms, severity_to_ocsf, to_ocsf_event
+from kronagent.audit import AuditLog
+from kronagent.schemas import AuditRecord
 
 
 def test_iso_to_epoch_ms() -> None:
@@ -98,7 +98,7 @@ def test_to_ocsf_event_containment() -> None:
             "executed": True,
             "dry_run": False,
             "detail": "Pod pod-123 isolated with NetworkPolicy",
-            "rollback_hint": "kubectl delete networkpolicy aegis-quarantine"
+            "rollback_hint": "kubectl delete networkpolicy kronagent-quarantine"
         }
     }
     
@@ -107,7 +107,7 @@ def test_to_ocsf_event_containment() -> None:
     assert event["class_uid"] == 7001
     assert event["remediation"]["status"] == "Success"
     assert event["remediation"]["status_id"] == 1
-    assert event["remediation"]["kb_article_list"] == ["kubectl delete networkpolicy aegis-quarantine"]
+    assert event["remediation"]["kb_article_list"] == ["kubectl delete networkpolicy kronagent-quarantine"]
 
 
 def test_to_ocsf_event_approval() -> None:

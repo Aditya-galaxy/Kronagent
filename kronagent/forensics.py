@@ -47,7 +47,7 @@ from .crypto import get_signer, Signer
 from .model import Finding
 from .schemas import AuditRecord
 
-COLLECTOR = "aegis-forensics"
+COLLECTOR = "kronagent-forensics"
 
 
 def _now() -> str:
@@ -133,7 +133,7 @@ def _plan_aws_evidence(finding: Finding) -> list[EvidenceItem]:
                 description=f"Snapshot the EBS volumes of instance {r.id} for offline forensic analysis.",
                 collection_calls=[
                     f"ec2.describe_instances(InstanceIds=['{r.id}'])  # enumerate attached volumes",
-                    f"ec2.create_snapshot(VolumeId=<each>, Description='aegis-forensic {r.id}', TagSpecifications=[aegis:evidence])",
+                    f"ec2.create_snapshot(VolumeId=<each>, Description='kronagent-forensic {r.id}', TagSpecifications=[kronagent:evidence])",
                 ],
             ))
             items.append(EvidenceItem(

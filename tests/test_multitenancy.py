@@ -1,5 +1,5 @@
 """
-Unit and integration tests for the Aegis Multi-Tenancy and Business-Unit isolation.
+Unit and integration tests for the Kronagent Multi-Tenancy and Business-Unit isolation.
 """
 
 from __future__ import annotations
@@ -9,16 +9,16 @@ import json
 import tempfile
 import pytest
 
-from aegis.model import Finding, ResourceRef
-from aegis.orchestrator import Orchestrator, get_tenant_path
-from aegis.config import Settings
-from aegis.triage import TriageEngine
-from aegis.policy import PolicyEngine
-from aegis.containment import ContainmentExecutor
-from aegis.audit import AuditLog
-from aegis.approvals import ApprovalStore
-from aegis.allowlist import AllowlistStore
-from aegis.schemas import ActionClass, ProposedAction
+from kronagent.model import Finding, ResourceRef
+from kronagent.orchestrator import Orchestrator, get_tenant_path
+from kronagent.config import Settings
+from kronagent.triage import TriageEngine
+from kronagent.policy import PolicyEngine
+from kronagent.containment import ContainmentExecutor
+from kronagent.audit import AuditLog
+from kronagent.approvals import ApprovalStore
+from kronagent.allowlist import AllowlistStore
+from kronagent.schemas import ActionClass, ProposedAction
 
 
 @pytest.fixture
@@ -28,13 +28,13 @@ def temp_settings_dir():
 
 
 def test_get_tenant_path():
-    base_audit = "/tmp/aegis_audit.jsonl"
+    base_audit = "/tmp/kronagent_audit.jsonl"
     assert get_tenant_path(base_audit, "default") == base_audit
     assert get_tenant_path(base_audit, "") == base_audit
-    assert get_tenant_path(base_audit, "tenant-a") == "/tmp/aegis_audit_tenant-a.jsonl"
+    assert get_tenant_path(base_audit, "tenant-a") == "/tmp/kronagent_audit_tenant-a.jsonl"
     
-    base_db = "/tmp/aegis.db"
-    assert get_tenant_path(base_db, "tenant-b") == "/tmp/aegis_tenant-b.db"
+    base_db = "/tmp/kronagent.db"
+    assert get_tenant_path(base_db, "tenant-b") == "/tmp/kronagent_tenant-b.db"
 
 
 @pytest.mark.asyncio
@@ -43,7 +43,7 @@ async def test_orchestrator_tenant_isolation(temp_settings_dir) -> None:
     audit_path = os.path.join(temp_settings_dir, "audit.jsonl")
     approvals_path = os.path.join(temp_settings_dir, "approvals.json")
     allowlist_path = os.path.join(temp_settings_dir, "allowlist.json")
-    db_path = os.path.join(temp_settings_dir, "aegis.db")
+    db_path = os.path.join(temp_settings_dir, "kronagent.db")
     
     settings = Settings(
         audit_log_path=audit_path,
@@ -59,8 +59,8 @@ async def test_orchestrator_tenant_isolation(temp_settings_dir) -> None:
     from unittest.mock import MagicMock, AsyncMock
     triage = MagicMock()
     # Mock assess to return an actionable threat with block_ip candidate
-    from aegis.triage import TriageVerdict
-    from aegis.schemas import ProposedAction, ActionClass
+    from kronagent.triage import TriageVerdict
+    from kronagent.schemas import ProposedAction, ActionClass
     verdict = TriageVerdict(
         finding_id="f-1",
         is_actionable_threat=True,
@@ -80,12 +80,12 @@ async def test_orchestrator_tenant_isolation(temp_settings_dir) -> None:
     triage.assess = AsyncMock(return_value=(verdict, candidates))
     
     # Policy and containment
-    from aegis.providers import build_containment_adapters
+    from kronagent.providers import build_containment_adapters
     policy = PolicyEngine(settings, AllowlistStore(allowlist_path))
     containment = ContainmentExecutor(settings, build_containment_adapters(settings))
     
     correlation = AsyncMock()
-    from aegis.correlation import CorrelationAssessment
+    from kronagent.correlation import CorrelationAssessment
     correlation.assess = AsyncMock(return_value=CorrelationAssessment(
         finding_id="f-1",
         available=True,
@@ -180,7 +180,7 @@ async def test_policy_allowlist_tenant_isolation(temp_settings_dir) -> None:
     
     # 3. Promote BLOCK_IP for tenant-a
     allowlist_a = AllowlistStore(get_tenant_path(allowlist_path, "tenant-a"))
-    from aegis.audit import AuditLog
+    from kronagent.audit import AuditLog
     audit_a = AuditLog(os.path.join(temp_settings_dir, "audit_a.jsonl"))
     await allowlist_a.add(ActionClass.BLOCK_IP, by="admin", reason="approved", audit=audit_a)
     

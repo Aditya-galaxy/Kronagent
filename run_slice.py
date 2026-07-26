@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Aegis — AWS GuardDuty threat-defense vertical slice (runnable entry point).
+Kronagent — AWS GuardDuty threat-defense vertical slice (runnable entry point).
 
 Wires the real pipeline end to end:
 
@@ -9,14 +9,14 @@ Wires the real pipeline end to end:
 
 Ingestion defaults to replaying real-schema findings from samples/ so the whole
 system runs locally with no AWS account. Point it at a live SQS queue (fed by
-GuardDuty -> EventBridge) and flip AEGIS_DRY_RUN=false + promote an action
+GuardDuty -> EventBridge) and flip KRONAGENT_DRY_RUN=false + promote an action
 class with promote.py to graduate it toward autonomy.
 
 Safety posture (all overridable via env, all default safe):
-    AEGIS_DRY_RUN=true                 # plan only; nothing is executed
-    AEGIS_KILL_SWITCH=false            # global halt of all containment
-    AEGIS_MIN_SEVERITY=4.0             # below this: alert only
-    AEGIS_QUARANTINE_SG_ID=            # required for real instance isolation
+    KRONAGENT_DRY_RUN=true                 # plan only; nothing is executed
+    KRONAGENT_KILL_SWITCH=false            # global halt of all containment
+    KRONAGENT_MIN_SEVERITY=4.0             # below this: alert only
+    KRONAGENT_QUARANTINE_SG_ID=            # required for real instance isolation
     GEMINI_API_KEY=...                 # triage enrichment (optional; degrades)
 
 The auto-execute allowlist is NOT an env var — it's an audited, persisted
@@ -33,21 +33,21 @@ import asyncio
 import os
 import sys
 
-from aegis.allowlist import AllowlistStore
-from aegis.approvals import ApprovalStore
-from aegis.audit import AuditLog
-from aegis.config import Settings
-from aegis.commander import IncidentCommanderAgent
-from aegis.containment import ContainmentExecutor
-from aegis.correlation import CorrelationAgent
-from aegis.forensics import ForensicsAgent
-from aegis.ingestion import FileReplaySource, QueuedFinding, SqsFindingSource
-from aegis.intel import ThreatIntelAgent
-from aegis.llm import GeminiTriageClient, LLMUnavailableError
-from aegis.orchestrator import Orchestrator, _log
-from aegis.policy import PolicyEngine
-from aegis.providers import NORMALIZERS, build_containment_adapters
-from aegis.triage import TriageEngine
+from kronagent.allowlist import AllowlistStore
+from kronagent.approvals import ApprovalStore
+from kronagent.audit import AuditLog
+from kronagent.config import Settings
+from kronagent.commander import IncidentCommanderAgent
+from kronagent.containment import ContainmentExecutor
+from kronagent.correlation import CorrelationAgent
+from kronagent.forensics import ForensicsAgent
+from kronagent.ingestion import FileReplaySource, QueuedFinding, SqsFindingSource
+from kronagent.intel import ThreatIntelAgent
+from kronagent.llm import GeminiTriageClient, LLMUnavailableError
+from kronagent.orchestrator import Orchestrator, _log
+from kronagent.policy import PolicyEngine
+from kronagent.providers import NORMALIZERS, build_containment_adapters
+from kronagent.triage import TriageEngine
 
 # Default file-replay set — one sample per provider, to exercise the whole
 # multi-provider pipeline in one local run with no cloud/cluster.
@@ -79,7 +79,7 @@ async def main(replay: list[tuple[str, str]]) -> int:
 
     audit = AuditLog(settings.audit_log_path)
     allowlist = AllowlistStore(settings.allowlist_store_path, seed=settings.auto_execute_allowlist)
-    from aegis.crypto import get_signer
+    from kronagent.crypto import get_signer
     signer = get_signer(settings)
     triage = TriageEngine(llm, signer)
     threat_intel = ThreatIntelAgent(llm)  # same LLM client; degrades if unavailable
@@ -91,7 +91,7 @@ async def main(replay: list[tuple[str, str]]) -> int:
     approvals = ApprovalStore(settings.approval_store_path)
     trajectory = None
     if settings.trajectory_guard_enabled:
-        from aegis.trajectory import TrajectoryConfig, TrajectoryGuard
+        from kronagent.trajectory import TrajectoryConfig, TrajectoryGuard
         trajectory = TrajectoryGuard(TrajectoryConfig(
             window_seconds=settings.trajectory_window_seconds,
             max_auto_executions=settings.trajectory_max_auto_executions,
@@ -106,7 +106,7 @@ async def main(replay: list[tuple[str, str]]) -> int:
     )
 
     allowed = sorted(e.action_class for e in allowlist.list())
-    _log("BOOT", "=== Aegis autonomous threat-defense platform starting ===")
+    _log("BOOT", "=== Kronagent autonomous threat-defense platform starting ===")
     _log("BOOT", f"mode: {'DRY-RUN (no execution)' if settings.dry_run else 'LIVE EXECUTION'}"
                  f" | kill_switch={settings.kill_switch}")
     _log("BOOT", f"auto-execute allowlist: {allowed or 'EMPTY (all actions need approval)'}")
@@ -124,11 +124,11 @@ async def main(replay: list[tuple[str, str]]) -> int:
     stop = asyncio.Event()
     ingestion_done = asyncio.Event()
 
-    # Source selection: SQS if AEGIS_SQS_QUEUE_URL is set (live source, runs
+    # Source selection: SQS if KRONAGENT_SQS_QUEUE_URL is set (live source, runs
     # until Ctrl-C), else replay sample events from disk across all providers.
-    sqs_url = os.getenv("AEGIS_SQS_QUEUE_URL")
+    sqs_url = os.getenv("KRONAGENT_SQS_QUEUE_URL")
     if sqs_url:
-        sqs_provider = os.getenv("AEGIS_SQS_PROVIDER", "aws")
+        sqs_provider = os.getenv("KRONAGENT_SQS_PROVIDER", "aws")
         _log("BOOT", f"ingestion: SQS long-poll {sqs_url} (provider={sqs_provider}, "
                      f"region {settings.aws_region})")
         source = SqsFindingSource(

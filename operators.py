@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Aegis operator-registry admin CLI — bootstrap and manage the identity registry
-that gates approvals and governance (see aegis/identity.py).
+Kronagent operator-registry admin CLI — bootstrap and manage the identity registry
+that gates approvals and governance (see kronagent/identity.py).
 
 Tokens are never stored in the clear: `add` takes a token (flag or prompt) and
 persists only its SHA-256. Point the platform at the registry with
-AEGIS_OPERATOR_REGISTRY (or Settings.operator_registry_path) to switch the
+KRONAGENT_OPERATOR_REGISTRY (or Settings.operator_registry_path) to switch the
 approval/governance CLIs into authenticated, RBAC-enforced mode.
 
     python3 operators.py add alice --name "Alice Ng" --roles admin --token s3cr3t
@@ -26,12 +26,12 @@ import os
 import sys
 import tempfile
 
-from aegis.config import Settings
-from aegis.identity import hash_token, known_roles
+from kronagent.config import Settings
+from kronagent.identity import hash_token, known_roles
 
 
 def _registry_path(args: argparse.Namespace) -> str:
-    return args.registry or Settings.from_env().operator_registry_path or "aegis_operators.json"
+    return args.registry or Settings.from_env().operator_registry_path or "kronagent_operators.json"
 
 
 def _load(path: str) -> dict[str, dict]:
@@ -121,8 +121,8 @@ def cmd_remove(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Aegis operator-registry admin")
-    parser.add_argument("--registry", help="registry path (default: AEGIS_OPERATOR_REGISTRY or aegis_operators.json)")
+    parser = argparse.ArgumentParser(description="Kronagent operator-registry admin")
+    parser.add_argument("--registry", help="registry path (default: KRONAGENT_OPERATOR_REGISTRY or kronagent_operators.json)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_add = sub.add_parser("add", help="add or replace an operator")

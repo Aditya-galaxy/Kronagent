@@ -9,31 +9,31 @@ import asyncio
 import sys
 import uuid
 
-from aegis.allowlist import AllowlistStore
-from aegis.approvals import ApprovalStore
-from aegis.audit import AuditLog
-from aegis.commander import IncidentCommanderAgent
-from aegis.config import Settings
-from aegis.containment import ContainmentExecutor
-from aegis.correlation import CorrelationAgent
-from aegis.forensics import ForensicsAgent
-from aegis.ingestion import QueuedFinding
-from aegis.intel import ThreatIntelAgent
-from aegis.orchestrator import Orchestrator
-from aegis.policy import PolicyEngine
-from aegis.providers import build_containment_adapters
-from aegis.simulation import DriftSimulationEngine
-from aegis.triage import TriageEngine
+from kronagent.allowlist import AllowlistStore
+from kronagent.approvals import ApprovalStore
+from kronagent.audit import AuditLog
+from kronagent.commander import IncidentCommanderAgent
+from kronagent.config import Settings
+from kronagent.containment import ContainmentExecutor
+from kronagent.correlation import CorrelationAgent
+from kronagent.forensics import ForensicsAgent
+from kronagent.ingestion import QueuedFinding
+from kronagent.intel import ThreatIntelAgent
+from kronagent.orchestrator import Orchestrator
+from kronagent.policy import PolicyEngine
+from kronagent.providers import build_containment_adapters
+from kronagent.simulation import DriftSimulationEngine
+from kronagent.triage import TriageEngine
 
 
 async def run_check() -> int:
-    print(">>> Initializing Aegis components for Drift Validation...")
+    print(">>> Initializing Kronagent components for Drift Validation...")
     import dataclasses
     settings = dataclasses.replace(Settings.from_env(), dry_run=True)
 
     audit = AuditLog(settings.audit_log_path)
     allowlist = AllowlistStore(settings.allowlist_store_path, seed=settings.auto_execute_allowlist)
-    from aegis.crypto import get_signer
+    from kronagent.crypto import get_signer
     signer = get_signer(settings)
     triage = TriageEngine(None, signer)  # deterministic fallback
     threat_intel = ThreatIntelAgent(None)
