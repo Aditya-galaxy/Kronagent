@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Aegis operator CLI — the human end of the earn-trust loop.
+Kronagent operator CLI — the human end of the earn-trust loop.
 
 An action the policy engine could not clear for autonomy waits in the approval
 store. An operator reviews it here and either authorizes execution (with
@@ -25,13 +25,13 @@ import asyncio
 import os
 import sys
 
-from aegis.approvals import ApprovalStore, now_iso
-from aegis.audit import AuditLog
-from aegis.config import Settings
-from aegis.containment import ContainmentExecutor
-from aegis.identity import AuthContext, AuthorizationError, Permission, resolve_actor
-from aegis.providers import build_containment_adapters
-from aegis.schemas import AuditRecord, BlastRadius, PolicyDecision
+from kronagent.approvals import ApprovalStore, now_iso
+from kronagent.audit import AuditLog
+from kronagent.config import Settings
+from kronagent.containment import ContainmentExecutor
+from kronagent.identity import AuthContext, AuthorizationError, Permission, resolve_actor
+from kronagent.providers import build_containment_adapters
+from kronagent.schemas import AuditRecord, BlastRadius, PolicyDecision
 
 
 def _resolve(settings: Settings, audit: AuditLog, args: argparse.Namespace,
@@ -44,7 +44,7 @@ def _resolve(settings: Settings, audit: AuditLog, args: argparse.Namespace,
             required=required,
             by=getattr(args, "by", None),
             operator_id=getattr(args, "as_operator", None),
-            token=getattr(args, "token", None) or os.getenv("AEGIS_OPERATOR_TOKEN"),
+            token=getattr(args, "token", None) or os.getenv("KRONAGENT_OPERATOR_TOKEN"),
             oidc_issuer=settings.oidc_issuer,
             oidc_audience=settings.oidc_audience,
             oidc_jwks_uri=settings.oidc_jwks_uri,
@@ -137,7 +137,7 @@ def cmd_approve(store: ApprovalStore, audit: AuditLog, settings: Settings,
         return 2
 
     if settings.kill_switch:
-        print("KILL SWITCH ENGAGED — execution refused. Disengage AEGIS_KILL_SWITCH to proceed.",
+        print("KILL SWITCH ENGAGED — execution refused. Disengage KRONAGENT_KILL_SWITCH to proceed.",
               file=sys.stderr)
         return 3
 
@@ -188,7 +188,7 @@ def cmd_approve(store: ApprovalStore, audit: AuditLog, settings: Settings,
     print(f"  rollback: {outcome.rollback_hint}")
     if r.status == "approved":
         print("  (DRY-RUN active — action authorized but not executed. "
-              "Set AEGIS_DRY_RUN=false to execute for real.)")
+              "Set KRONAGENT_DRY_RUN=false to execute for real.)")
     return 0
 
 
@@ -197,7 +197,7 @@ def main() -> int:
     store = ApprovalStore(settings.approval_store_path)
     audit = AuditLog(settings.audit_log_path)
 
-    parser = argparse.ArgumentParser(description="Aegis approval CLI")
+    parser = argparse.ArgumentParser(description="Kronagent approval CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_list = sub.add_parser("list", help="list pending (or all) approval requests")
@@ -208,11 +208,11 @@ def main() -> int:
 
     # Identity flags shared by the mutating commands. In unauthenticated mode
     # (no registry) pass --by. In enforced mode (registry configured) pass
-    # --as <operator_id> and a token (--token or AEGIS_OPERATOR_TOKEN).
+    # --as <operator_id> and a token (--token or KRONAGENT_OPERATOR_TOKEN).
     def _add_identity(p: argparse.ArgumentParser) -> None:
         p.add_argument("--by", help="operator identity, unauthenticated mode (audited)")
         p.add_argument("--as", dest="as_operator", help="authenticated operator id (enforced mode)")
-        p.add_argument("--token", help="operator token (or set AEGIS_OPERATOR_TOKEN)")
+        p.add_argument("--token", help="operator token (or set KRONAGENT_OPERATOR_TOKEN)")
         p.add_argument("--reason", required=True, help="justification (audited)")
 
     p_appr = sub.add_parser("approve", help="authorize and execute an action")

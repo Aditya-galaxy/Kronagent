@@ -1,5 +1,5 @@
 """
-Drift simulation engine to continuously test and validate the health of the Aegis pipeline.
+Drift simulation engine to continuously test and validate the health of the Kronagent pipeline.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ class DriftSimulationEngine:
         return Finding(
             provider="aws",
             finding_id=finding_id,
-            finding_type="Aegis:Simulation/DriftCheck",
+            finding_type="Kronagent:Simulation/DriftCheck",
             severity=3.0,
             raw={"is_simulation": True},
         )

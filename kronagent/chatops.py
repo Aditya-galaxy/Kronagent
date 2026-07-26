@@ -1,5 +1,5 @@
 """
-ChatOps Integration Utility for Aegis.
+ChatOps Integration Utility for Kronagent.
 
 Handles Slack Block Kit formatting, sending webhook or bot notifications,
 updating interactive message cards, and verifying Slack signature headers.
@@ -67,7 +67,7 @@ class ChatOpsNotifier:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"🛡️ *Aegis Incident Containment Approval Request* [ID: `{req.request_id}`]"
+                    "text": f"🛡️ *Kronagent Incident Containment Approval Request* [ID: `{req.request_id}`]"
                 }
             },
             {
@@ -143,7 +143,7 @@ class ChatOpsNotifier:
         url = "https://slack.com/api/chat.postMessage"
         payload = {
             "channel": settings.slack_channel_id,
-            "text": f"Aegis Approval Request for {req.action_class.value} on {req.target}",
+            "text": f"Kronagent Approval Request for {req.action_class.value} on {req.target}",
             "blocks": cls.build_slack_blocks(req)
         }
 
@@ -183,7 +183,7 @@ class ChatOpsNotifier:
         payload = {
             "channel": settings.slack_channel_id,
             "ts": ts,
-            "text": f"Aegis Approval Update for {req.action_class.value} on {req.target}",
+            "text": f"Kronagent Approval Update for {req.action_class.value} on {req.target}",
             "blocks": cls.build_slack_blocks(req, status_text)
         }
 

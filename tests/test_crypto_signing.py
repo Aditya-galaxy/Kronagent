@@ -10,14 +10,14 @@ import boto3
 from moto import mock_aws
 import pytest
 
-from aegis.crypto import LocalAsymmetricSigner, KmsSigner, get_signer
-from aegis.config import Settings
-from aegis.forensics import EvidenceItem
+from kronagent.crypto import LocalAsymmetricSigner, KmsSigner, get_signer
+from kronagent.config import Settings
+from kronagent.forensics import EvidenceItem
 
 
 def test_local_asymmetric_signer_lifecycle(tmp_path) -> None:
     # 1. Setup local key PEM path
-    key_pem = str(tmp_path / "aegis_key.pem")
+    key_pem = str(tmp_path / "kronagent_key.pem")
 
     # 2. First instantiation generates key
     signer = LocalAsymmetricSigner(key_pem)
@@ -47,7 +47,7 @@ def test_kms_signer_integration() -> None:
     # 1. Setup mock KMS Key
     kms_client = boto3.client("kms", region_name="us-east-1")
     key_res = kms_client.create_key(
-        Description="Aegis Test Key",
+        Description="Kronagent Test Key",
         KeyUsage="SIGN_VERIFY",
         CustomerMasterKeySpec="RSA_2048",
     )
@@ -68,7 +68,7 @@ def test_kms_signer_integration() -> None:
 
 
 def test_evidence_item_custody_verification_with_signature(tmp_path) -> None:
-    key_pem = str(tmp_path / "aegis_key.pem")
+    key_pem = str(tmp_path / "kronagent_key.pem")
     signer = LocalAsymmetricSigner(key_pem)
 
     item = EvidenceItem(
@@ -90,7 +90,7 @@ def test_evidence_item_custody_verification_with_signature(tmp_path) -> None:
 
 
 def test_get_signer_factory(tmp_path) -> None:
-    db_path = str(tmp_path / "aegis.db")
+    db_path = str(tmp_path / "kronagent.db")
     settings = Settings(
         kms_key_id="",
         db_path=db_path,
@@ -99,5 +99,5 @@ def test_get_signer_factory(tmp_path) -> None:
     signer = get_signer(settings)
     assert isinstance(signer, LocalAsymmetricSigner)
     # Check that key was created in database directory
-    expected_key_path = str(tmp_path / "aegis_key.pem")
+    expected_key_path = str(tmp_path / "kronagent_key.pem")
     assert signer.key_path == expected_key_path

@@ -8,13 +8,13 @@ import asyncio
 
 import pytest
 
-from aegis.audit import AuditLog
-from aegis.config import Settings
-from aegis.containment import ContainmentExecutor
-from aegis.ingestion import QueuedFinding
-from aegis.model import Finding
-from aegis.orchestrator import Orchestrator
-from aegis.schemas import BlastRadius, PolicyDecision, ProposedAction, TriageVerdict
+from kronagent.audit import AuditLog
+from kronagent.config import Settings
+from kronagent.containment import ContainmentExecutor
+from kronagent.ingestion import QueuedFinding
+from kronagent.model import Finding
+from kronagent.orchestrator import Orchestrator
+from kronagent.schemas import BlastRadius, PolicyDecision, ProposedAction, TriageVerdict
 
 
 class AsyncMockTriage:
@@ -47,7 +47,7 @@ class FakePolicyEngine:
 @pytest.mark.asyncio
 async def test_parallel_worker_processing(tmp_path) -> None:
     # 1. Setup paths
-    log_path = str(tmp_path / "aegis_audit.jsonl")
+    log_path = str(tmp_path / "kronagent_audit.jsonl")
 
     settings = Settings(
         max_workers=5,

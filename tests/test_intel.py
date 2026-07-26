@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import pytest
 
-from aegis.intel import (
+from kronagent.intel import (
     MitreTechnique,
     ThreatIntelAgent,
     ThreatIntelAssessment,
     _LLMIntelOutput,
 )
-from aegis.model import Finding, ResourceRef
+from kronagent.model import Finding, ResourceRef
 
 
 class FakeLLM:

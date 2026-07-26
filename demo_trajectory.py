@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Aegis — behavioral-trajectory guard demo (the automatic kill switch).
+Kronagent — behavioral-trajectory guard demo (the automatic kill switch).
 
 The guard is a NEGATIVE control: on healthy traffic it does nothing at all,
 which is exactly the desired behavior and exactly what makes it hard to show.
@@ -31,22 +31,22 @@ import json
 import os
 import sys
 
-from aegis.allowlist import AllowlistStore
-from aegis.audit import AuditLog
-from aegis.config import Settings
-from aegis.containment import ContainmentExecutor
-from aegis.ingestion import QueuedFinding
-from aegis.model import Finding, ResourceRef
-from aegis.orchestrator import Orchestrator
-from aegis.policy import PolicyEngine
-from aegis.providers import build_containment_adapters
-from aegis.schemas import ActionClass, ProposedAction, TriageVerdict
-from aegis.trajectory import TrajectoryConfig, TrajectoryGuard
+from kronagent.allowlist import AllowlistStore
+from kronagent.audit import AuditLog
+from kronagent.config import Settings
+from kronagent.containment import ContainmentExecutor
+from kronagent.ingestion import QueuedFinding
+from kronagent.model import Finding, ResourceRef
+from kronagent.orchestrator import Orchestrator
+from kronagent.policy import PolicyEngine
+from kronagent.providers import build_containment_adapters
+from kronagent.schemas import ActionClass, ProposedAction, TriageVerdict
+from kronagent.trajectory import TrajectoryConfig, TrajectoryGuard
 
 BOLD, DIM, RESET = "\033[1m", "\033[2m", "\033[0m"
 CYAN, GREEN, YELLOW, RED = "\033[36m", "\033[32m", "\033[33m", "\033[31m"
 
-AUDIT_PATH = "aegis_trajectory_demo.jsonl"
+AUDIT_PATH = "kronagent_trajectory_demo.jsonl"
 
 
 def banner(text: str) -> None:
@@ -86,7 +86,7 @@ def compromised_finding() -> Finding:
     """A legitimate finding: it implicates exactly ONE EC2 instance."""
     return Finding(
         provider="aws",
-        finding_id="aegis-finding-demo-0001",
+        finding_id="kronagent-finding-demo-0001",
         finding_type="UnauthorizedAccess:EC2/MaliciousIPCaller",
         severity=8.0,
         title="EC2 instance communicating with a known malicious IP",
@@ -158,7 +158,7 @@ def audit_stages() -> list[str]:
 
 async def main() -> int:
     # Fresh, isolated state — never touches the real runtime files.
-    for path in (AUDIT_PATH, "aegis_trajectory_demo_allow.json"):
+    for path in (AUDIT_PATH, "kronagent_trajectory_demo_allow.json"):
         if os.path.exists(path):
             os.remove(path)
 
@@ -166,7 +166,7 @@ async def main() -> int:
         dry_run=True,
         kill_switch=False,
         audit_log_path=AUDIT_PATH,
-        allowlist_store_path="aegis_trajectory_demo_allow.json",
+        allowlist_store_path="kronagent_trajectory_demo_allow.json",
         # Auto-execute isolate_instance_sg so the runaway scenario has something
         # the pipeline will actually commit to autonomously.
         auto_execute_allowlist=frozenset({"isolate_instance_sg"}),

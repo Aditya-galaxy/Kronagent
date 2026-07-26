@@ -3,7 +3,7 @@ Provider-neutral finding model.
 
 Everything above the provider boundary — triage, policy, containment dispatch,
 approval, audit, governance — operates on `Finding`, never on a vendor's wire
-schema. A provider adapter (aegis/providers/*.py) does exactly two things:
+schema. A provider adapter (kronagent/providers/*.py) does exactly two things:
 
   1. normalize its native events (GuardDuty finding, Kubernetes audit event,
      Falco alert, an in-house syslog line, ...) into a `Finding`, and

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Aegis — live terminal demo.
+# Kronagent — live terminal demo.
 #
 # A narrated, five-act walkthrough of the platform. Everything on screen is the
 # REAL system driving its REAL CLIs (run_slice.py / promote.py / approve.py) —
@@ -9,9 +9,9 @@
 #
 # Usage:
 #   ./demo.sh              # interactive — press Enter between acts (for presenting)
-#   AEGIS_DEMO_AUTO=1 ./demo.sh   # hands-off — auto-advances (for recording)
+#   KRONAGENT_DEMO_AUTO=1 ./demo.sh   # hands-off — auto-advances (for recording)
 #
-# Optional: AEGIS_PY=/path/to/python3 to force a specific interpreter.
+# Optional: KRONAGENT_PY=/path/to/python3 to force a specific interpreter.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -25,7 +25,7 @@ else
 fi
 
 # --- locate a Python with the project deps -------------------------------- #
-PY="${AEGIS_PY:-}"
+PY="${KRONAGENT_PY:-}"
 if [ -z "$PY" ]; then
   for cand in /usr/local/bin/python3 python3 /opt/homebrew/bin/python3; do
     if command -v "$cand" >/dev/null 2>&1 && "$cand" -c 'import pydantic, google.genai, dotenv' >/dev/null 2>&1; then
@@ -36,7 +36,7 @@ fi
 if [ -z "$PY" ]; then
   echo "${RED}Could not find a Python 3 with the project dependencies installed.${RESET}"
   echo "Install with:  python3 -m pip install pydantic google-genai python-dotenv boto3"
-  echo "Or set AEGIS_PY=/path/to/python3"
+  echo "Or set KRONAGENT_PY=/path/to/python3"
   exit 1
 fi
 
@@ -49,7 +49,7 @@ banner() {
 say()  { printf "${DIM}   %s${RESET}\n" "$1"; }
 run()  { printf "\n${YELLOW}   \$ %s${RESET}\n\n" "$*"; "$@"; }
 pause() {
-  if [ "${AEGIS_DEMO_AUTO:-0}" = "1" ]; then sleep "${1:-3}"
+  if [ "${KRONAGENT_DEMO_AUTO:-0}" = "1" ]; then sleep "${1:-3}"
   else printf "\n${DIM}   ── press Enter to continue ──${RESET}"; read -r _ || true; fi
 }
 
@@ -62,7 +62,7 @@ pending_id() {
 import json, sys
 ac = sys.argv[1]
 try:
-    d = json.load(open("aegis_approvals.json"))
+    d = json.load(open("kronagent_approvals.json"))
 except FileNotFoundError:
     sys.exit(0)
 for k, v in d.items():
@@ -72,11 +72,11 @@ PYEOF
 }
 
 # Force dry-run for the whole demo, regardless of the caller's environment.
-export AEGIS_DRY_RUN=true
-export AEGIS_KILL_SWITCH=false
+export KRONAGENT_DRY_RUN=true
+export KRONAGENT_KILL_SWITCH=false
 
 # Fresh state so the demo is reproducible.
-rm -f aegis_audit.jsonl aegis_approvals.json aegis_allowlist.json
+rm -f kronagent_audit.jsonl kronagent_approvals.json kronagent_allowlist.json
 
 # ========================================================================== #
 clear || true
@@ -132,23 +132,23 @@ if have_testbed; then
   export AWS_ACCESS_KEY_ID=testing AWS_SECRET_ACCESS_KEY=testing AWS_SESSION_TOKEN=testing
   TB_PORT=5057
   mkdir -p ./.demo_tmp
-  "$PY" testbed/sqs_emulator.py serve --port "$TB_PORT" > ./.demo_tmp/aegis_demo_testbed.log 2>&1 &
+  "$PY" testbed/sqs_emulator.py serve --port "$TB_PORT" > ./.demo_tmp/kronagent_demo_testbed.log 2>&1 &
   TB_PID=$!
   # Wait for the queue URL to appear.
   TB_QURL=""
   for _ in $(seq 1 30); do
-    TB_QURL="$( (grep -m1 'Queue URL' ./.demo_tmp/aegis_demo_testbed.log 2>/dev/null || true) | awk '{print $NF}')"
+    TB_QURL="$( (grep -m1 'Queue URL' ./.demo_tmp/kronagent_demo_testbed.log 2>/dev/null || true) | awk '{print $NF}')"
     [ -n "$TB_QURL" ] && break; sleep 0.3
   done
   if [ -n "$TB_QURL" ]; then
-    printf "\n${YELLOW}   \$ AEGIS_SQS_ENDPOINT_URL=http://localhost:%s AEGIS_SQS_QUEUE_URL=… run_slice.py${RESET}\n\n" "$TB_PORT"
+    printf "\n${YELLOW}   \$ KRONAGENT_SQS_ENDPOINT_URL=http://localhost:%s KRONAGENT_SQS_QUEUE_URL=… run_slice.py${RESET}\n\n" "$TB_PORT"
     # run_slice long-polls until interrupted; run it for a bounded window, then
     # stop it the same way Ctrl-C would (it drains gracefully).
-    AEGIS_SQS_ENDPOINT_URL="http://localhost:$TB_PORT" AEGIS_SQS_QUEUE_URL="$TB_QURL" \
-      AEGIS_SQS_WAIT_SECONDS=2 \
-      AEGIS_AUDIT_PATH=./.demo_tmp/aegis_demo_live.jsonl \
-      AEGIS_APPROVAL_PATH=./.demo_tmp/aegis_demo_live_appr.json \
-      AEGIS_ALLOWLIST_PATH=./.demo_tmp/aegis_demo_live_allow.json \
+    KRONAGENT_SQS_ENDPOINT_URL="http://localhost:$TB_PORT" KRONAGENT_SQS_QUEUE_URL="$TB_QURL" \
+      KRONAGENT_SQS_WAIT_SECONDS=2 \
+      KRONAGENT_AUDIT_PATH=./.demo_tmp/kronagent_demo_live.jsonl \
+      KRONAGENT_APPROVAL_PATH=./.demo_tmp/kronagent_demo_live_appr.json \
+      KRONAGENT_ALLOWLIST_PATH=./.demo_tmp/kronagent_demo_live_allow.json \
       "$PY" run_slice.py &
     LIVE_PID=$!
     sleep 12
@@ -208,26 +208,26 @@ say "Every decision and action — triage, policy, containment, approvals,"
 say "governance — is one hash-chained record. This is what EU AI Act Article 12"
 say "(automatic logging) and Article 14 (human oversight) require, and it's what"
 say "makes autonomous response defensible instead of a black box."
-run "$PY" -c "from aegis.audit import AuditLog; ok,b=AuditLog.verify('aegis_audit.jsonl'); print('  chain verification:', 'OK — intact' if ok else f'BROKEN at line {b}')"
+run "$PY" -c "from kronagent.audit import AuditLog; ok,b=AuditLog.verify('kronagent_audit.jsonl'); print('  chain verification:', 'OK — intact' if ok else f'BROKEN at line {b}')"
 say ""
 say "Now watch what happens if an attacker (or an insider) edits a past record to"
 say "cover their tracks — we tamper with one line of a COPY of the log:"
 "$PY" - <<'PYEOF'
 import json
-lines = open("aegis_audit.jsonl").read().splitlines()
+lines = open("kronagent_audit.jsonl").read().splitlines()
 i = min(2, len(lines) - 1)
 env = json.loads(lines[i])
 env["record"].setdefault("payload", {})["note"] = "ATTACKER EDITED THIS RECORD"
 lines[i] = json.dumps(env)
-open("aegis_audit_tampered.jsonl", "w").write("\n".join(lines) + "\n")
+open("kronagent_audit_tampered.jsonl", "w").write("\n".join(lines) + "\n")
 print(f"     (edited record on line {i+1} of the copy — the content, not the hash)")
 PYEOF
-run "$PY" -c "from aegis.audit import AuditLog; ok,b=AuditLog.verify('aegis_audit_tampered.jsonl'); print('  verification of tampered copy:', 'OK' if ok else f'>>> TAMPERING DETECTED at line {b} <<<')"
-rm -f aegis_audit_tampered.jsonl
+run "$PY" -c "from kronagent.audit import AuditLog; ok,b=AuditLog.verify('kronagent_audit_tampered.jsonl'); print('  verification of tampered copy:', 'OK' if ok else f'>>> TAMPERING DETECTED at line {b} <<<')"
+rm -f kronagent_audit_tampered.jsonl
 say ""
 say "Audit logs are normalized and exported to OCSF format for Splunk/Sentinel SIEM integration:"
 run "$PY" run_siem_export.py
-rm -f aegis_ocsf_export.jsonl
+rm -f kronagent_ocsf_export.jsonl
 pause 2
 
 # -------------------------------------------------------------------------- #
@@ -239,5 +239,5 @@ printf "   ${GREEN}✓${RESET} Graduated autonomy: reversible auto-acts, destruc
 printf "   ${GREEN}✓${RESET} Earn-trust governance — promote one action class at a time, audited\n"
 printf "   ${GREEN}✓${RESET} Tamper-evident audit trail & OCSF SIEM export (EU AI Act Art. 12/14)\n"
 printf "\n   ${DIM}Everything shown ran in dry-run. The same paths execute for real against a\n"
-printf "   live account once an action class is promoted and AEGIS_DRY_RUN=false.${RESET}\n\n"
+printf "   live account once an action class is promoted and KRONAGENT_DRY_RUN=false.${RESET}\n\n"
 

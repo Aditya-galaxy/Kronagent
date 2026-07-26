@@ -1,4 +1,4 @@
-# Aegis runtime dependencies.
+# Kronagent runtime dependencies.
 pydantic>=2.13
 google-genai>=2.12
 python-dotenv>=1.2

@@ -1,7 +1,7 @@
 """
 OCSF Schema Normalization Module.
 
-Aligns Aegis internal audit log events with the Open Cybersecurity Schema Framework.
+Aligns Kronagent internal audit log events with the Open Cybersecurity Schema Framework.
 Maps:
   * triage, threat_intel, correlation, command -> Detection Finding (class_uid: 2004)
   * policy, containment, approvals, forensics -> Remediation Activity (class_uid: 7001)
@@ -54,8 +54,8 @@ def to_ocsf_event(audit_line: dict[str, Any]) -> Optional[dict[str, Any]]:
     metadata = {
         "version": "1.1.0",
         "product": {
-            "vendor_name": "Aegis",
-            "name": "Aegis Autonomous Responder",
+            "vendor_name": "Kronagent",
+            "name": "Kronagent Autonomous Responder",
             "version": "1.0.0"
         }
     }
@@ -84,8 +84,8 @@ def to_ocsf_event(audit_line: dict[str, Any]) -> Optional[dict[str, Any]]:
                 "created_time": time_ms,
             },
             "analytic": {
-                "name": "Aegis Triage Engine",
-                "uid": "aegis-triage",
+                "name": "Kronagent Triage Engine",
+                "uid": "kronagent-triage",
                 "type": "Rule"
             },
             "confidence": int(payload.get("confidence", 0.5) * 100)
@@ -108,8 +108,8 @@ def to_ocsf_event(audit_line: dict[str, Any]) -> Optional[dict[str, Any]]:
                 "desc": payload.get("threat_intel_summary", "") or payload.get("intel_summary", ""),
             },
             "analytic": {
-                "name": "Aegis Threat Intel Agent",
-                "uid": "aegis-intel",
+                "name": "Kronagent Threat Intel Agent",
+                "uid": "kronagent-intel",
                 "type": "Enrichment"
             },
             "kb_article_list": techniques
@@ -130,8 +130,8 @@ def to_ocsf_event(audit_line: dict[str, Any]) -> Optional[dict[str, Any]]:
                 "desc": payload.get("correlation_summary", ""),
             },
             "analytic": {
-                "name": "Aegis Correlation Agent",
-                "uid": "aegis-correlation",
+                "name": "Kronagent Correlation Agent",
+                "uid": "kronagent-correlation",
                 "type": "Correlation"
             },
             "comment": f"part_of_campaign={payload.get('part_of_campaign', False)}, related_ids={payload.get('related_finding_ids', [])}"
@@ -157,8 +157,8 @@ def to_ocsf_event(audit_line: dict[str, Any]) -> Optional[dict[str, Any]]:
                 "desc": payload.get("incident_narrative", ""),
             },
             "analytic": {
-                "name": "Aegis Incident Commander",
-                "uid": "aegis-commander",
+                "name": "Kronagent Incident Commander",
+                "uid": "kronagent-commander",
                 "type": "Synthesis"
             },
             "comment": f"escalated_to_human={escalate}"
@@ -329,8 +329,8 @@ def to_ocsf_event(audit_line: dict[str, Any]) -> Optional[dict[str, Any]]:
                 "desc": payload.get("error", "Unknown pipeline error"),
             },
             "analytic": {
-                "name": "Aegis Orchestrator",
-                "uid": "aegis-orchestrator",
+                "name": "Kronagent Orchestrator",
+                "uid": "kronagent-orchestrator",
                 "type": "Error"
             }
         }

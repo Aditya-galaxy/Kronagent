@@ -4,7 +4,7 @@ Containment executor — generic safety logic, provider-specific execution.
 The dangerous decisions live here and are provider-agnostic: whether an action
 is blocked, awaits approval, is planned-only (dry-run), or actually executes.
 The concrete "what API calls does this action make" is delegated to the
-provider's ContainmentAdapter (aegis/providers/*.py), selected by the action's
+provider's ContainmentAdapter (kronagent/providers/*.py), selected by the action's
 `provider` field.
 
 Design principle (unchanged across the provider refactor): the *plan* — the

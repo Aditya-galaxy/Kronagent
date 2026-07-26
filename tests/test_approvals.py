@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from aegis.approvals import ApprovalRequest, ApprovalStore
-from aegis.schemas import ActionClass
+from kronagent.approvals import ApprovalRequest, ApprovalStore
+from kronagent.schemas import ActionClass
 
 
 @pytest.fixture

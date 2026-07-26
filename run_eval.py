@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Aegis — Measured Evaluation Harness.
+Kronagent — Measured Evaluation Harness.
 
 Reads a labeled dataset of attack and benign telemetry traces (AWS GuardDuty and 
 Kubernetes audit events) to score the entire response pipeline. Reports precision,
@@ -22,22 +22,22 @@ from typing import Any, Optional
 
 from pydantic import BaseModel
 
-from aegis.allowlist import AllowlistStore
-from aegis.approvals import ApprovalStore
-from aegis.audit import AuditLog
-from aegis.config import Settings
-from aegis.commander import IncidentCommanderAgent
-from aegis.containment import ContainmentExecutor
-from aegis.correlation import CorrelationAgent
-from aegis.forensics import ForensicsAgent
-from aegis.ingestion import QueuedFinding
-from aegis.intel import ThreatIntelAgent
-from aegis.model import Finding
-from aegis.orchestrator import Orchestrator
-from aegis.policy import PolicyEngine
-from aegis.providers import NORMALIZERS, build_containment_adapters
-from aegis.schemas import AuditRecord, ActionClass
-from aegis.triage import TriageEngine
+from kronagent.allowlist import AllowlistStore
+from kronagent.approvals import ApprovalStore
+from kronagent.audit import AuditLog
+from kronagent.config import Settings
+from kronagent.commander import IncidentCommanderAgent
+from kronagent.containment import ContainmentExecutor
+from kronagent.correlation import CorrelationAgent
+from kronagent.forensics import ForensicsAgent
+from kronagent.ingestion import QueuedFinding
+from kronagent.intel import ThreatIntelAgent
+from kronagent.model import Finding
+from kronagent.orchestrator import Orchestrator
+from kronagent.policy import PolicyEngine
+from kronagent.providers import NORMALIZERS, build_containment_adapters
+from kronagent.schemas import AuditRecord, ActionClass
+from kronagent.triage import TriageEngine
 
 
 # --------------------------------------------------------------------------- #
@@ -121,7 +121,7 @@ class MockGeminiClient:
                 correlated_signals=[],
             )
         elif schema.__name__ == "_LLMIntelOutput":
-            from aegis.intel import MitreTechnique
+            from kronagent.intel import MitreTechnique
             techniques = [
                 MitreTechnique(technique_id="T1078", technique_name="Valid Accounts", tactic="Initial Access")
             ] if expected_actionable else []
@@ -225,7 +225,7 @@ async def evaluate_pipeline(dataset_path: str, use_live: bool, allowlist_classes
     # LLM selection
     if use_live:
         try:
-            from aegis.llm import GeminiTriageClient
+            from kronagent.llm import GeminiTriageClient
             llm = GeminiTriageClient()
             print("Using live Gemini API for evaluation.")
         except Exception as exc:
@@ -236,7 +236,7 @@ async def evaluate_pipeline(dataset_path: str, use_live: bool, allowlist_classes
         llm = MockGeminiClient(dataset)
         print("Using mock client (deterministic dataset labels) for evaluation.")
         
-    from aegis.crypto import get_signer
+    from kronagent.crypto import get_signer
     signer = get_signer(settings)
     triage = TriageEngine(llm, signer)
     threat_intel = ThreatIntelAgent(llm)
@@ -370,7 +370,7 @@ async def evaluate_pipeline(dataset_path: str, use_live: bool, allowlist_classes
     
     # Print report
     print("\n" + "="*60)
-    print("                 AEGIS PIPELINE EVALUATION REPORT")
+    print("                 KRONAGENT PIPELINE EVALUATION REPORT")
     print("="*60)
     print(f"Dataset Size: {total_cases} cases (Benign: {total_benign_count}, Attack: {total_cases - total_benign_count})")
     print("-"*60)
@@ -402,7 +402,7 @@ async def evaluate_pipeline(dataset_path: str, use_live: bool, allowlist_classes
 # --------------------------------------------------------------------------- #
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Aegis Measured Evaluation Harness.")
+    parser = argparse.ArgumentParser(description="Kronagent Measured Evaluation Harness.")
     parser.add_name = parser.add_argument  # type checking helper
     parser.add_argument("--dataset", type=str, default="samples/eval_dataset.json",
                         help="Path to evaluation dataset JSON.")

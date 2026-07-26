@@ -1,4 +1,4 @@
-# Aegis — Market Research & Strategic Direction
+# Kronagent — Market Research & Strategic Direction
 
 *Compiled 2026-07-18. Grounded in live web research (sources cited throughout), not
 assumed knowledge — this space has moved fast enough in the last 18 months that
@@ -11,7 +11,7 @@ stale priors would mislead.*
 The AI-SOC market is real, funded, and growing fast — but nearly every well-funded
 competitor stops at **investigation**, not **execution**. The "industry consensus"
 architecture that's emerging in 2026 — autonomous triage, approval-gated containment,
-human-executed high-impact remediation — is *exactly* what Aegis already is, not
+human-executed high-impact remediation — is *exactly* what Kronagent already is, not
 something we'd need to pivot toward. Combined with an EU AI Act enforcement deadline
 (Aug 2, 2026) that specifically rewards audited human oversight, there's a real,
 timely wedge: **sell the audited execution layer that the investigation-only
@@ -70,7 +70,7 @@ and we already built it.** From 2026 AI-SOC trend research:
 > containment actions require human approval (medium risk), and remediation is
 > human-executed (high impact)." — [Underdefense, AI SOC Trends 2026](https://underdefense.com/blog/ai-soc-automation/)
 
-This is a description of Aegis's policy engine (`aegis/policy.py`) almost verbatim:
+This is a description of Kronagent's policy engine (`kronagent/policy.py`) almost verbatim:
 reversibility + blast-radius gate what auto-executes, everything else routes to a
 human, high-impact/destructive actions are structurally incapable of running
 unattended regardless of allowlist state. We didn't design toward a market gap after
@@ -85,7 +85,7 @@ tamper-evident logging across the system's lifecycle.
 ([artificialintelligenceact.eu](https://artificialintelligenceact.eu/article/14/),
 [Cloud Security Alliance](https://labs.cloudsecurityalliance.org/research/csa-research-note-eu-ai-act-high-risk-compliance-deadline-20/))
 
-Aegis's hash-chained audit log and the promote/approve governance CLIs are close to
+Kronagent's hash-chained audit log and the promote/approve governance CLIs are close to
 a literal implementation of what Article 12/14 compliance requires. Competitors
 selling "fully autonomous, no human in the loop" containment are the ones with
 compliance exposure here, not us.
@@ -101,11 +101,11 @@ alongside — or instead of — an investigation-only tool.
 
 ---
 
-## 5. Where Aegis stands against this landscape today
+## 5. Where Kronagent stands against this landscape today
 
 Honest inventory, not aspirational:
 
-| Capability | Aegis today | Competitive read |
+| Capability | Kronagent today | Competitive read |
 |---|---|---|
 | Detection/triage (deterministic + LLM) | ✅ Real, tested, fast (~2s/call on `gemini-3.1-flash-lite`) | Table stakes — every competitor has this |
 | Graduated-autonomy policy engine | ✅ Real, tested — reversibility/blast-radius gated | **This is the differentiator.** Matches the stated 2026 industry-consensus architecture that most competitors *don't* actually implement |
@@ -156,7 +156,7 @@ actual price points, not speculative TAM math. Three live pricing models to weig
 ### Go-to-market channel
 Given the mid-market cost gap ($1.8–3.5M/yr in-house SOC), the MSSP/MSP channel
 ($14–15B SOCaaS market, growing) is a credible path to distribution without a direct
-enterprise sales motion — sell Aegis *to* MSSPs as their execution layer, not only
+enterprise sales motion — sell Kronagent *to* MSSPs as their execution layer, not only
 direct to end customers.
 
 **Recommendation:** Option C (tiered by autonomy), sold both direct (compliance-driven
@@ -173,7 +173,7 @@ that most competitors aren't positioning around yet.
   be real and demonstrable, not just claimed in a pitch deck.
 - **Platform bundling risk.** CrowdStrike and SentinelOne can bundle "good enough"
   agentic response into platforms customers already buy, at effectively $0 marginal
-  price. Aegis's cross-platform, non-lock-in positioning is a hedge against this, but
+  price. Kronagent's cross-platform, non-lock-in positioning is a hedge against this, but
   only if the second/third provider (Kubernetes, then a second cloud) actually ships.
 - **LLM cost unpredictability.** Multiple sources flag token/model cost as the "next
   major value challenge" for agentic SOC economics — every reasoning chain, every
@@ -194,7 +194,7 @@ that most competitors aren't positioning around yet.
 2. **Get a throwaway AWS account and run one real, live, approval-gated execution
    end-to-end.** This converts "architecturally sound" into "demonstrably works,"
    which is the minimum bar for any customer conversation.
-3. **Build a one-page comparison artifact** (Aegis vs. the table in §3) for
+3. **Build a one-page comparison artifact** (Kronagent vs. the table in §3) for
    fundraising/sales conversations — the "investigation-only vs. audited execution"
    framing is the sharpest, most defensible wedge found in this research.
 4. **Lead early conversations with the EU AI Act angle** for any EU-exposed prospect

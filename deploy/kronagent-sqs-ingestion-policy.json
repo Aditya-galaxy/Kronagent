@@ -1,6 +1,6 @@
 {
   "Version": "2012-10-17",
-  "Id": "AegisSqsIngestionReadOnly",
+  "Id": "KronagentSqsIngestionReadOnly",
   "Statement": [
     {
       "Sid": "ReceiveAndDeleteFindingsQueueOnly",

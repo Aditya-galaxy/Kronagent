@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from aegis.containment import ContainmentExecutor
-from aegis.schemas import ActionClass
+from kronagent.containment import ContainmentExecutor
+from kronagent.schemas import ActionClass
 
 from .conftest import FakeContainmentAdapter, make_action, make_decision
 

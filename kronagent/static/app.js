@@ -1,4 +1,4 @@
-/* Aegis Analyst Console Client Application */
+/* Kronagent Analyst Console Client Application */
 
 document.addEventListener("DOMContentLoaded", () => {
     // State management
@@ -10,8 +10,8 @@ document.addEventListener("DOMContentLoaded", () => {
         approvals: [],
         audit: [],
         allowlist: [],
-        operatorId: sessionStorage.getItem("aegis_operator_id") || "",
-        token: sessionStorage.getItem("aegis_operator_token") || ""
+        operatorId: sessionStorage.getItem("kronagent_operator_id") || "",
+        token: sessionStorage.getItem("kronagent_operator_token") || ""
     };
 
     // DOM Elements
@@ -590,8 +590,8 @@ document.addEventListener("DOMContentLoaded", () => {
         elements.sidebarAuthSave.addEventListener("click", () => {
             const opId = elements.sidebarOperatorId.value.trim();
             const tok = elements.sidebarOperatorToken.value.trim();
-            sessionStorage.setItem("aegis_operator_id", opId);
-            sessionStorage.setItem("aegis_operator_token", tok);
+            sessionStorage.setItem("kronagent_operator_id", opId);
+            sessionStorage.setItem("kronagent_operator_token", tok);
             state.operatorId = opId;
             state.token = tok;
             refreshData();
