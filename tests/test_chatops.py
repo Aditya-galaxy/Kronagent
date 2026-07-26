@@ -1,5 +1,5 @@
 """
-Unit and integration tests for the Aegis ChatOps Slack integration.
+Unit and integration tests for the Kronagent ChatOps Slack integration.
 """
 
 from __future__ import annotations
@@ -15,12 +15,12 @@ from unittest.mock import patch, MagicMock
 
 from fastapi.testclient import TestClient
 
-from aegis.web import app
-from aegis.chatops import verify_slack_signature, ChatOpsNotifier
-from aegis.approvals import ApprovalStore, ApprovalRequest
-from aegis.allowlist import AllowlistStore
-from aegis.audit import AuditLog
-from aegis.schemas import ActionClass
+from kronagent.web import app
+from kronagent.chatops import verify_slack_signature, ChatOpsNotifier
+from kronagent.approvals import ApprovalStore, ApprovalRequest
+from kronagent.allowlist import AllowlistStore
+from kronagent.audit import AuditLog
+from kronagent.schemas import ActionClass
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def test_env():
         temp_audit_path = os.path.join(temp_dir, "test_audit.jsonl")
         temp_registry_path = os.path.join(temp_dir, "test_registry.json")
 
-        from aegis.identity import hash_token
+        from kronagent.identity import hash_token
         registry_data = {
             "alice": {
                 "display_name": "Alice Admin",
@@ -44,8 +44,8 @@ def test_env():
         with open(temp_registry_path, "w", encoding="utf-8") as f:
             json.dump(registry_data, f)
 
-        from aegis import web
-        from aegis.config import Settings
+        from kronagent import web
+        from kronagent.config import Settings
 
         test_settings = Settings(
             dry_run=True,

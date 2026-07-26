@@ -2,7 +2,7 @@
 The earn-trust dial, made real and audited.
 
 Before this module, "graduating" an action class to autonomous execution meant
-editing AEGIS_AUTO_EXECUTE_ALLOWLIST and restarting the process — a change with
+editing KRONAGENT_AUTO_EXECUTE_ALLOWLIST and restarting the process — a change with
 zero record of who made it or why. For a platform whose entire safety case
 rests on "nothing executes unattended until a human decided it should," that
 gap was the biggest inconsistency in the system: the single most consequential
@@ -17,7 +17,7 @@ AllowlistStore fixes that:
   * read live by PolicyEngine on every decision — promoting or demoting an
     action class takes effect immediately, no restart.
 
-Seeded on first use from AEGIS_AUTO_EXECUTE_ALLOWLIST (if set) so existing
+Seeded on first use from KRONAGENT_AUTO_EXECUTE_ALLOWLIST (if set) so existing
 deployments aren't silently reset to empty.
 """
 
@@ -47,7 +47,7 @@ class AllowlistStore:
         if not os.path.exists(self._path) and seed:
             self._write_all({
                 ac: AllowlistEntry(
-                    action_class=ac, added_by="system", reason="seeded from AEGIS_AUTO_EXECUTE_ALLOWLIST"
+                    action_class=ac, added_by="system", reason="seeded from KRONAGENT_AUTO_EXECUTE_ALLOWLIST"
                 ).model_dump()
                 for ac in seed
             })

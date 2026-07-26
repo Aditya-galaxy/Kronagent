@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from aegis.model import Finding, ResourceRef
+from kronagent.model import Finding, ResourceRef
 
 
 @pytest.mark.parametrize(

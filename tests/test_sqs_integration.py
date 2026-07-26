@@ -21,8 +21,8 @@ pytest.importorskip("boto3")
 import boto3
 from moto.server import ThreadedMotoServer
 
-from aegis.ingestion import QueuedFinding, SqsFindingSource
-from aegis.providers.aws import normalize_guardduty
+from kronagent.ingestion import QueuedFinding, SqsFindingSource
+from kronagent.providers.aws import normalize_guardduty
 
 REGION = "us-east-1"
 
@@ -54,14 +54,14 @@ def _dummy_aws_credentials(monkeypatch):
 @pytest.fixture()
 def sqs_server():
     import os
-    external_endpoint = os.getenv("AEGIS_TEST_SQS_ENDPOINT")
+    external_endpoint = os.getenv("KRONAGENT_TEST_SQS_ENDPOINT")
     if external_endpoint:
         client = boto3.client("sqs", region_name=REGION, endpoint_url=external_endpoint,
                               aws_access_key_id="testing", aws_secret_access_key="testing")
         try:
-            queue_url = client.get_queue_url(QueueName="aegis-findings-test")["QueueUrl"]
+            queue_url = client.get_queue_url(QueueName="kronagent-findings-test")["QueueUrl"]
         except Exception:
-            queue_url = client.create_queue(QueueName="aegis-findings-test")["QueueUrl"]
+            queue_url = client.create_queue(QueueName="kronagent-findings-test")["QueueUrl"]
         yield external_endpoint, queue_url, client
     else:
         server = ThreadedMotoServer(port=0)  # port 0 -> OS picks a free port
@@ -70,7 +70,7 @@ def sqs_server():
         endpoint = f"http://{host}:{port}"
         client = boto3.client("sqs", region_name=REGION, endpoint_url=endpoint,
                               aws_access_key_id="testing", aws_secret_access_key="testing")
-        queue_url = client.create_queue(QueueName="aegis-findings-test")["QueueUrl"]
+        queue_url = client.create_queue(QueueName="kronagent-findings-test")["QueueUrl"]
         try:
             yield endpoint, queue_url, client
         finally:

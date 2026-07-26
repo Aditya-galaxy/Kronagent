@@ -9,8 +9,8 @@ import argparse
 import json
 import sys
 
-from aegis.config import Settings
-from aegis.compliance import ComplianceExporter
+from kronagent.config import Settings
+from kronagent.compliance import ComplianceExporter
 
 
 def main() -> int:

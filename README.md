@@ -1,10 +1,10 @@
-# Aegis
+# Kronagent
 
 **Autonomous AI threat-defense for enterprise networks — with guardrails you can audit.**
 
-Aegis is an AI-native security platform built as a team of specialist agents: it ingests live findings from multi-cloud and cluster environments, triages and investigates them, synthesizes an incident assessment, preserves forensic evidence, and executes containment — with **graduated autonomy**, not blanket automation. Every decision is gated by a deterministic policy engine, every action is planned and logged before it runs, destructive actions always wait for a human, and the entire trail is a tamper-evident, hash-chained audit log.
+Kronagent is an AI-native security platform built as a team of specialist agents: it ingests live findings from multi-cloud and cluster environments, triages and investigates them, synthesizes an incident assessment, preserves forensic evidence, and executes containment — with **graduated autonomy**, not blanket automation. Every decision is gated by a deterministic policy engine, every action is planned and logged before it runs, destructive actions always wait for a human, and the entire trail is a tamper-evident, hash-chained audit log.
 
-Most "AI SOC" tools stop at investigation. Aegis executes — but only as much
+Most "AI SOC" tools stop at investigation. Kronagent executes — but only as much
 autonomy as it has earned.
 
 ```bash
@@ -16,7 +16,7 @@ autonomy as it has earned.
 ## Why it's built this way
 
 The pitch for autonomous security response is easy; the trust model is the
-hard part. Aegis's answer is **earn-trust, graduated autonomy**:
+hard part. Kronagent's answer is **earn-trust, graduated autonomy**:
 
 - **Safe by default.** On a cold start, the auto-execute allowlist is empty.
   Every containment action requires human approval until an operator
@@ -81,7 +81,7 @@ Finding (AWS GuardDuty or Kubernetes audit event, normalized)
   Kubernetes (audit events — pods/nodes/deployments) normalize into one
   provider-neutral `Finding` type and flow through the identical pipeline.
   Adding a third source (Azure Defender, GCP SCC, an in-house detector) is a
-  new module in `aegis/providers/` plus a registry entry — nothing else
+  new module in `kronagent/providers/` plus a registry entry — nothing else
   changes.
 - **Live ingestion.** GuardDuty → EventBridge → SQS, long-polled with
   at-least-once, ack-after-process delivery — a crash mid-processing
@@ -117,7 +117,7 @@ python3 run_compliance_report.py --markdown-output rep.md # export a styled Mark
 
 ```
 
-Everything above runs in **dry-run** by default (`AEGIS_DRY_RUN=true`) — no
+Everything above runs in **dry-run** by default (`KRONAGENT_DRY_RUN=true`) — no
 cloud or cluster is touched. Findings are read from `samples/` with no AWS
 account required.
 
@@ -125,7 +125,7 @@ account required.
 
 ```bash
 ./demo.sh                        # interactive — press Enter between acts
-AEGIS_DEMO_AUTO=1 ./demo.sh       # hands-off — auto-advances (for recording)
+KRONAGENT_DEMO_AUTO=1 ./demo.sh       # hands-off — auto-advances (for recording)
 ```
 
 A five-act narrated walkthrough driving the **real CLIs**, no mocks: safe
@@ -142,8 +142,8 @@ python3 -m pip install -r testbed/requirements.txt
 python3 testbed/sqs_emulator.py serve            # starts a local SQS emulator + streams sample findings in
 
 # in another shell, using the endpoint/queue URL it prints:
-export AEGIS_SQS_ENDPOINT_URL=http://localhost:5001
-export AEGIS_SQS_QUEUE_URL=<printed queue URL>
+export KRONAGENT_SQS_ENDPOINT_URL=http://localhost:5001
+export KRONAGENT_SQS_QUEUE_URL=<printed queue URL>
 python3 run_slice.py                             # long-polls and processes findings live
 ```
 
@@ -170,22 +170,22 @@ python3 approve.py approve <request-id> --by alice --reason "confirmed compromis
 ### Going live against real infrastructure
 
 ```bash
-export AEGIS_DRY_RUN=false
-export AEGIS_QUARANTINE_SG_ID=sg-...        # required for EC2 isolation
-export AEGIS_QUARANTINE_NACL_ID=acl-...      # required for BLOCK_IP (EC2 Network ACL)
-export AEGIS_DB_PATH=aegis.db               # optional: sqlite database for persistent store/memory
-export AEGIS_KUBECONFIG=/path/to/kubeconfig # required for Kubernetes containment
-export AEGIS_SQS_QUEUE_URL=https://sqs...   # your real GuardDuty -> EventBridge -> SQS queue
+export KRONAGENT_DRY_RUN=false
+export KRONAGENT_QUARANTINE_SG_ID=sg-...        # required for EC2 isolation
+export KRONAGENT_QUARANTINE_NACL_ID=acl-...      # required for BLOCK_IP (EC2 Network ACL)
+export KRONAGENT_DB_PATH=kronagent.db               # optional: sqlite database for persistent store/memory
+export KRONAGENT_KUBECONFIG=/path/to/kubeconfig # required for Kubernetes containment
+export KRONAGENT_SQS_QUEUE_URL=https://sqs...   # your real GuardDuty -> EventBridge -> SQS queue
 ```
 
-Only action classes present in the (audited, `promote.py`-managed) allowlist — and classified reversible/single-resource by the policy engine — will ever execute unattended. Everything else routes to `approve.py` regardless of `AEGIS_DRY_RUN`. Persistent storage can be enabled by specifying `AEGIS_DB_PATH` pointing to a SQLite database file, transitioning the approvals queue and correlation memory from file-based/in-memory scopes. See [`deploy/README.md`](deploy/README.md) for the AWS IAM policy and SQS/EventBridge wiring.
+Only action classes present in the (audited, `promote.py`-managed) allowlist — and classified reversible/single-resource by the policy engine — will ever execute unattended. Everything else routes to `approve.py` regardless of `KRONAGENT_DRY_RUN`. Persistent storage can be enabled by specifying `KRONAGENT_DB_PATH` pointing to a SQLite database file, transitioning the approvals queue and correlation memory from file-based/in-memory scopes. See [`deploy/README.md`](deploy/README.md) for the AWS IAM policy and SQS/EventBridge wiring.
 
 ---
 
 ## Project layout
 
 ```
-aegis/
+kronagent/
   model.py            provider-neutral Finding / ResourceRef
   schemas.py           action taxonomy, triage/policy/outcome/audit types
   providers/

@@ -9,8 +9,8 @@ import json
 import boto3
 from moto import mock_aws
 
-from aegis.providers.aws import AwsContainmentAdapter
-from aegis.schemas import ActionClass, ProposedAction
+from kronagent.providers.aws import AwsContainmentAdapter
+from kronagent.schemas import ActionClass, ProposedAction
 
 
 @mock_aws
@@ -95,10 +95,10 @@ def test_moto_revoke_role_sessions_success() -> None:
 
     # 4. Verify that the inline revocation policy was actually attached to the IAM role in Moto!
     policies = iam_client.list_role_policies(RoleName=role_name)
-    assert "aegis-revoke-sessions" in policies["PolicyNames"]
+    assert "kronagent-revoke-sessions" in policies["PolicyNames"]
 
     policy_detail = iam_client.get_role_policy(
-        RoleName=role_name, PolicyName="aegis-revoke-sessions"
+        RoleName=role_name, PolicyName="kronagent-revoke-sessions"
     )
     policy_doc = policy_detail["PolicyDocument"]
     if isinstance(policy_doc, str):

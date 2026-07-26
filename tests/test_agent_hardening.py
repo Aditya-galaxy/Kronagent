@@ -1,18 +1,18 @@
 import pytest
 import json
 import base64
-from aegis.config import Settings
-from aegis.orchestrator import Orchestrator
-from aegis.triage import TriageEngine
-from aegis.model import Finding
-from aegis.schemas import ProposedAction, ActionClass, TriageVerdict, AuditRecord
-from aegis.crypto import get_signer, LocalAsymmetricSigner
-from aegis.identity import hash_token
-from aegis.audit import AuditLog
-from aegis.allowlist import AllowlistStore
-from aegis.policy import PolicyEngine
-from aegis.containment import ContainmentExecutor
-from aegis.providers import build_containment_adapters
+from kronagent.config import Settings
+from kronagent.orchestrator import Orchestrator
+from kronagent.triage import TriageEngine
+from kronagent.model import Finding
+from kronagent.schemas import ProposedAction, ActionClass, TriageVerdict, AuditRecord
+from kronagent.crypto import get_signer, LocalAsymmetricSigner
+from kronagent.identity import hash_token
+from kronagent.audit import AuditLog
+from kronagent.allowlist import AllowlistStore
+from kronagent.policy import PolicyEngine
+from kronagent.containment import ContainmentExecutor
+from kronagent.providers import build_containment_adapters
 
 class FakeTriageEngine:
     def __init__(self, verdict: TriageVerdict):
@@ -179,7 +179,7 @@ async def test_agent_signature_unsigned_fails(base_settings) -> None:
 
 def test_web_view_permissions_enforced(tmp_path):
     from fastapi.testclient import TestClient
-    from aegis import web
+    from kronagent import web
     
     # 1. Configure registry
     registry_data = {

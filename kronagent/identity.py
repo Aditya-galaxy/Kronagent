@@ -20,7 +20,7 @@ Act Article 14) that's a hole in the load-bearing claim. This module closes it:
     identity was verified or merely self-asserted.
 
 Enforcement is registry-gated, so nothing breaks that doesn't opt in:
-  * A registry is configured (AEGIS_OPERATOR_REGISTRY / settings.operator_registry_path)
+  * A registry is configured (KRONAGENT_OPERATOR_REGISTRY / settings.operator_registry_path)
     → **enforced mode**: every command authenticates, mutating commands are
     authorized, and audit records carry `identity_verified: true`.
   * No registry → **unauthenticated mode** (dev/demo/back-compat): the old
@@ -291,7 +291,7 @@ class OidcIdentityProvider:
             except ImportError:
                 raise AuthorizationError(
                     "OIDC signature verification is enabled, but 'pyjwt' or 'cryptography' "
-                    "is not installed. Install them or set AEGIS_OIDC_VERIFY_SIGNATURE=false."
+                    "is not installed. Install them or set KRONAGENT_OIDC_VERIFY_SIGNATURE=false."
                 )
             except Exception as e:
                 # Verification failed
@@ -343,7 +343,7 @@ def resolve_actor(
         if not operator_id:
             raise AuthorizationError(
                 "authentication required — OIDC SSO is configured. "
-                "Pass --as <operator_id> and a token (--token or AEGIS_OPERATOR_TOKEN)."
+                "Pass --as <operator_id> and a token (--token or KRONAGENT_OPERATOR_TOKEN)."
             )
         provider = OidcIdentityProvider(
             issuer=oidc_issuer,
@@ -373,7 +373,7 @@ def resolve_actor(
         if not operator_id:
             raise AuthorizationError(
                 "authentication required — an operator registry is configured. "
-                "Pass --as <operator_id> and a token (--token or AEGIS_OPERATOR_TOKEN)."
+                "Pass --as <operator_id> and a token (--token or KRONAGENT_OPERATOR_TOKEN)."
             )
         operator = LocalIdentityProvider(registry_path).authenticate(operator_id, token)
         if operator is None:

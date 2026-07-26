@@ -1,4 +1,4 @@
-# Aegis testbed — Docker option (higher-fidelity SQS via ElasticMQ).
+# Kronagent testbed — Docker option (higher-fidelity SQS via ElasticMQ).
 #
 # The DEFAULT testbed is moto's standalone server (testbed/sqs_emulator.py):
 # pip-installable, zero-auth, no Docker, pure Python, and enough to run the live
@@ -13,17 +13,17 @@
 #
 # Usage:
 #   docker compose -f testbed/docker-compose.yml up -d
-#   export AEGIS_SQS_ENDPOINT_URL=http://localhost:9324
+#   export KRONAGENT_SQS_ENDPOINT_URL=http://localhost:9324
 #   python3 testbed/sqs_emulator.py enqueue     # create the queue + stream findings
 #   # (that prints the queue URL; export it, then in another shell:)
-#   export AEGIS_SQS_QUEUE_URL=http://localhost:9324/000000000000/aegis-findings
+#   export KRONAGENT_SQS_QUEUE_URL=http://localhost:9324/000000000000/kronagent-findings
 #   python3 run_slice.py                        # live ingestion
 #   docker compose -f testbed/docker-compose.yml down
 
 services:
   sqs:
     image: softwaremill/elasticmq-native:1.6.14
-    container_name: aegis-testbed-sqs
+    container_name: kronagent-testbed-sqs
     ports:
       - "9324:9324"   # SQS API
       - "9325:9325"   # web UI (queue inspector)

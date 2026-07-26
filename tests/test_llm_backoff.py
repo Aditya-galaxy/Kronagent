@@ -11,8 +11,8 @@ import asyncio
 import pytest
 from google.genai import errors
 
-from aegis import llm as llm_module
-from aegis.llm import LLMUnavailableError, _with_backoff
+from kronagent import llm as llm_module
+from kronagent.llm import LLMUnavailableError, _with_backoff
 
 
 class FakeApiError(errors.APIError):

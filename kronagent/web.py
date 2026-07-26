@@ -29,7 +29,7 @@ from .orchestrator import get_tenant_path
 
 
 # Initialize FastAPI app
-app = FastAPI(title="Aegis Incident Response Console")
+app = FastAPI(title="Kronagent Incident Response Console")
 
 # Resolve static directory relative to this module
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -543,7 +543,7 @@ async def slack_interactive(request: Request) -> dict[str, Any]:
     if r is None:
         import glob
         directory = os.path.dirname(os.path.abspath(settings.approval_store_path)) or "."
-        pattern = os.path.join(directory, "aegis_approvals_*.json")
+        pattern = os.path.join(directory, "kronagent_approvals_*.json")
         for filepath in glob.glob(pattern):
             filename = os.path.basename(filepath)
             base_filename = os.path.basename(settings.approval_store_path)
@@ -601,7 +601,7 @@ async def slack_interactive(request: Request) -> dict[str, Any]:
         if settings.kill_switch:
             return {
                 "response_type": "ephemeral",
-                "text": "❌ Command execution aborted: global Aegis KILL SWITCH is ENGAGED."
+                "text": "❌ Command execution aborted: global Kronagent KILL SWITCH is ENGAGED."
             }
 
         # Setup decision context
@@ -660,6 +660,6 @@ async def slack_interactive(request: Request) -> dict[str, Any]:
 
     return {
         "replace_original": True,
-        "text": f"Aegis Approval Request Updated: {status_text}",
+        "text": f"Kronagent Approval Request Updated: {status_text}",
         "blocks": updated_blocks
     }

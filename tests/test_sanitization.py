@@ -6,13 +6,13 @@ from __future__ import annotations
 
 import pytest
 
-from aegis.sanitization import (
+from kronagent.sanitization import (
     sanitize_text,
     sanitize_ip,
     sanitize_resource_ref,
     sanitize_finding,
 )
-from aegis.model import Finding, ResourceRef
+from kronagent.model import Finding, ResourceRef
 
 
 def test_sanitize_text_truncation() -> None:
@@ -121,8 +121,8 @@ def test_sanitize_finding_e2e() -> None:
 
 @pytest.mark.asyncio
 async def test_triage_engine_preserves_target_but_sanitizes_llm_prompt() -> None:
-    from aegis.triage import TriageEngine
-    from aegis.schemas import TriageVerdict
+    from kronagent.triage import TriageEngine
+    from kronagent.schemas import TriageVerdict
     
     # Define a mock LLM that captures the prompt sent to it.
     captured_prompts = []

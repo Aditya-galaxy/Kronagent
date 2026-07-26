@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Aegis — Analyst Console Web Server Runner.
+Kronagent — Analyst Console Web Server Runner.
 
 Launches the FastAPI web server to host the incident approval queue,
 audit explorer, and allowlist governance web dashboard.
@@ -14,7 +14,7 @@ import uvicorn
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Start the Aegis Analyst Console Web Server.")
+    parser = argparse.ArgumentParser(description="Start the Kronagent Analyst Console Web Server.")
     parser.add_argument(
         "--host",
         type=str,
@@ -30,19 +30,19 @@ def main() -> int:
     
     args = parser.parse_args()
     
-    print(f"[*] Starting Aegis Analyst Console on http://{args.host}:{args.port}")
+    print(f"[*] Starting Kronagent Analyst Console on http://{args.host}:{args.port}")
     print("[*] Access the web UI dashboard directly in your browser.")
     
     try:
         uvicorn.run(
-            "aegis.web:app",
+            "kronagent.web:app",
             host=args.host,
             port=args.port,
             log_level="info",
             reload=False
         )
     except KeyboardInterrupt:
-        print("\n[*] Stopping Aegis Analyst Console.")
+        print("\n[*] Stopping Kronagent Analyst Console.")
     except Exception as exc:
         print(f"[-] Failed to start web console: {exc}", file=sys.stderr)
         return 1

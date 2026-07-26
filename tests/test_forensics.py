@@ -16,10 +16,10 @@ import json
 
 import pytest
 
-from aegis.audit import AuditLog
-from aegis.config import Settings
-from aegis.forensics import COLLECTOR, EvidenceItem, ForensicsAgent
-from aegis.model import Finding, ResourceRef
+from kronagent.audit import AuditLog
+from kronagent.config import Settings
+from kronagent.forensics import COLLECTOR, EvidenceItem, ForensicsAgent
+from kronagent.model import Finding, ResourceRef
 
 
 def _aws_instance_finding() -> Finding:

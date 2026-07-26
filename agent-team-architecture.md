@@ -1,4 +1,4 @@
-# Aegis — From Pipeline to Agent Team: Architecture Research
+# Kronagent — From Pipeline to Agent Team: Architecture Research
 
 *Compiled 2026-07-18. Grounded in live research (2026 industry + academic sources,
 cited). Companion to `research.md` (market/strategy); this doc is the technical
@@ -51,7 +51,7 @@ frameworks — converge on nearly the same specialized roster, organized in tier
 **Universal finding across all sources:** human escalation is *mandatory* for
 high-impact decisions, and the EU AI Act classifies this as high-risk (transparency
 + human oversight required). **This is exactly the earn-trust + audited-approval
-model Aegis already implements** — so the agent team must be built *inside* that
+model Kronagent already implements** — so the agent team must be built *inside* that
 governance envelope, not around it.
 
 ---
@@ -60,7 +60,7 @@ governance envelope, not around it.
 
 The single most important architectural decision, and where most "agentic"
 products go wrong: **an agent is a role with a goal and the autonomy to pursue it —
-not necessarily an LLM call.** Aegis's existing insight (LLM for judgment,
+not necessarily an LLM call.** Kronagent's existing insight (LLM for judgment,
 deterministic code for targets and execution) is *more* defensible than the pure
 multi-agent-LLM designs, and it's a security property, not just an optimization:
 
@@ -191,7 +191,7 @@ Moving forward, development is focused on the next architectural milestones:
 
 ## 7. Distributed Scaling & Enterprise Architecture
 
-To run Aegis in high-volume enterprise production environments, the architecture transitions from a single, sequential loop to a distributed, decoupled worker model:
+To run Kronagent in high-volume enterprise production environments, the architecture transitions from a single, sequential loop to a distributed, decoupled worker model:
 
 ```mermaid
 graph LR

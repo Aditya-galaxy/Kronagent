@@ -1,4 +1,4 @@
-# Aegis — Future Plan
+# Kronagent — Future Plan
 
 *Compiled 2026-07-22. Grounded in 2026 sources (cited inline). Companion to
 `research.md` (market/strategy) and `agent-team-architecture.md` (technical
@@ -49,7 +49,7 @@ at 85–90% / 70–80%.
 The wedge: *"existing evaluations rarely measure whether agents make [the false-
 positive] problem better or worse **when given authority to act**."*
 ([AI-Augmented SOC survey](https://www.mdpi.com/2624-800X/5/4/95)) That is exactly
-what Aegis does that investigation-only tools don't — so lead there.
+what Kronagent does that investigation-only tools don't — so lead there.
 
 **Build:**
 - A labeled corpus of attack + benign traces (extend `samples/` + the drift
@@ -80,7 +80,7 @@ procurement**, regardless of how good the engine is
 ([D3](https://d3security.com/blog/ai-soc-platforms-2026/),
 [Conifers CISO guide](https://www.conifers.ai/blog/the-enterprise-ai-soc-a-cisos-guide-from-pilot-to-production-in-2026)).
 
-| Requirement | Aegis today | Work |
+| Requirement | Kronagent today | Work |
 |---|---|---|
 | **SSO (SAML/OIDC)** — *"username/password only will not pass procurement"* | Identity + RBAC shipped; `IdentityProvider` is the SSO seam | Implement an OIDC provider behind the existing seam — no caller change |
 | **RBAC** | ✅ Done (viewer/approver/admin) | Extend roles as customers require |
@@ -149,7 +149,7 @@ The provider abstraction makes this additive (a module + registry entry):
   (CrowdStrike/SentinelOne), an in-house syslog/Falco detector.
 - **Threat-intel feeds:** STIX/TAXII ingestion so the threat-intel agent
   correlates against live IOC feeds, not just its own reasoning.
-- **Native anomaly detection** (optional): today Aegis consumes upstream
+- **Native anomaly detection** (optional): today Kronagent consumes upstream
   detections; a lightweight native detector would reduce dependence on
   GuardDuty/Falco.
 

@@ -8,14 +8,14 @@ import asyncio
 import os
 import pytest
 
-from aegis.audit import AuditLog
-from aegis.config import Settings
-from aegis.containment import ContainmentExecutor
-from aegis.ingestion import QueuedFinding
-from aegis.orchestrator import Orchestrator
-from aegis.simulation import DriftSimulationEngine
-from aegis.triage import TriageEngine
-from aegis.schemas import PolicyDecision, ProposedAction, BlastRadius
+from kronagent.audit import AuditLog
+from kronagent.config import Settings
+from kronagent.containment import ContainmentExecutor
+from kronagent.ingestion import QueuedFinding
+from kronagent.orchestrator import Orchestrator
+from kronagent.simulation import DriftSimulationEngine
+from kronagent.triage import TriageEngine
+from kronagent.schemas import PolicyDecision, ProposedAction, BlastRadius
 
 
 class FakePolicyEngine:
@@ -34,7 +34,7 @@ def test_drift_simulation_finding_generation() -> None:
     finding = engine.generate_finding("f-drift-test")
 
     assert finding.finding_id == "f-drift-test"
-    assert finding.finding_type == "Aegis:Simulation/DriftCheck"
+    assert finding.finding_type == "Kronagent:Simulation/DriftCheck"
     assert finding.severity == 3.0
     assert finding.provider == "aws"
     assert finding.raw.get("is_simulation") is True
@@ -42,7 +42,7 @@ def test_drift_simulation_finding_generation() -> None:
 
 @pytest.mark.asyncio
 async def test_drift_pipeline_validation_loop(tmp_path) -> None:
-    log_path = str(tmp_path / "aegis_audit.jsonl")
+    log_path = str(tmp_path / "kronagent_audit.jsonl")
     settings = Settings(
         max_workers=1,
         audit_log_path=log_path,

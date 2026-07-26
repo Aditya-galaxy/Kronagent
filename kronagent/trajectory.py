@@ -2,17 +2,17 @@
 Behavioral-trajectory guard — the automatic kill switch for a runaway or
 redirected containment pipeline.
 
-Aegis is itself an autonomous multi-agent system that, in live mode, holds
+Kronagent is itself an autonomous multi-agent system that, in live mode, holds
 production write-credentials — it can revoke IAM, delete pods, block IPs. The
 2026 agent-security incidents (e.g. the OpenAI GPT-5.6 Sol sandbox escape, where
 an agent reward-hacked its way out of containment to reach a production
-database) are not only a threat to defend *against*; they describe what an Aegis
+database) are not only a threat to defend *against*; they describe what an Kronagent
 agent could *become* under prompt injection or misalignment. The lesson those
 post-mortems converge on: **"single-call security monitoring is all but useless"
 — you must watch behavioral trajectories across actions and back them with an
 automatic kill switch.**
 
-Aegis's existing controls are strong on the single-action axis (the policy
+Kronagent's existing controls are strong on the single-action axis (the policy
 engine gates each action; LLM agents are advisory and cannot emit a target).
 The gap this module fills is the *trajectory* axis — two deterministic controls
 over the stream of actions:
@@ -60,10 +60,10 @@ class TrajectoryConfig:
     @classmethod
     def from_env(cls) -> "TrajectoryConfig":
         return cls(
-            window_seconds=float(os.getenv("AEGIS_TRAJECTORY_WINDOW_SECONDS", "60")),
-            max_auto_executions=int(os.getenv("AEGIS_TRAJECTORY_MAX_AUTO", "25")),
-            max_scope_violations=int(os.getenv("AEGIS_TRAJECTORY_MAX_SCOPE_VIOLATIONS", "3")),
-            enforce_scope=os.getenv("AEGIS_TRAJECTORY_ENFORCE_SCOPE", "true").strip().lower()
+            window_seconds=float(os.getenv("KRONAGENT_TRAJECTORY_WINDOW_SECONDS", "60")),
+            max_auto_executions=int(os.getenv("KRONAGENT_TRAJECTORY_MAX_AUTO", "25")),
+            max_scope_violations=int(os.getenv("KRONAGENT_TRAJECTORY_MAX_SCOPE_VIOLATIONS", "3")),
+            enforce_scope=os.getenv("KRONAGENT_TRAJECTORY_ENFORCE_SCOPE", "true").strip().lower()
             in {"1", "true", "yes", "on"},
         )
 

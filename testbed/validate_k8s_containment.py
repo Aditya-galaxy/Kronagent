@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 
-KIND_CLUSTER_NAME = "aegis-testbed"
+KIND_CLUSTER_NAME = "kronagent-testbed"
 CALICO_MANIFEST = "https://raw.githubusercontent.com/projectcalico/calico/v3.25.0/manifests/calico.yaml"
 
 
@@ -120,10 +120,10 @@ def verify_containment() -> None:
     log("Baseline connection verified.")
 
     # 2. Trigger containment adapter
-    log("Triggering Aegis K8sContainmentAdapter active isolation...")
+    log("Triggering Kronagent K8sContainmentAdapter active isolation...")
     sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-    from aegis.providers.k8s import K8sContainmentAdapter
-    from aegis.schemas import ActionClass, ProposedAction
+    from kronagent.providers.k8s import K8sContainmentAdapter
+    from kronagent.schemas import ActionClass, ProposedAction
 
     # Context format for Kind clusters is: kind-<cluster-name>
     adapter = K8sContainmentAdapter(context=f"kind-{KIND_CLUSTER_NAME}")
@@ -135,7 +135,7 @@ def verify_containment() -> None:
         parameters={"namespace": "default"},
     )
     detail, rollback = adapter._perform_sync(action)
-    log(f"Aegis Containment Response: {detail}")
+    log(f"Kronagent Containment Response: {detail}")
 
     # 3. Test blocked connection
     log("Asserting connection is now blocked (should time out)...")

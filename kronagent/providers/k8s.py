@@ -61,7 +61,7 @@ class K8sAuditEvent(BaseModel):
     user: K8sUser = Field(default_factory=K8sUser)
     sourceIPs: Optional[list[str]] = None
     objectRef: ObjectRef = Field(default_factory=ObjectRef)
-    # Aegis-side detection annotations (what a Falco rule / detector attached):
+    # Kronagent-side detection annotations (what a Falco rule / detector attached):
     detected_rule: Optional[str] = None   # e.g. "privilege_escalation_exec"
     detected_severity: Optional[float] = None  # 0-10 if the detector set it
     node_name: Optional[str] = None       # node the pod runs on, if known
@@ -162,7 +162,7 @@ def plan_k8s_actions(finding: Finding) -> list[ProposedAction]:
 class K8sContainmentAdapter:
     provider = PROVIDER
 
-    _DENY_ALL_NETPOL = "aegis-quarantine-deny-all"
+    _DENY_ALL_NETPOL = "kronagent-quarantine-deny-all"
 
     def __init__(self, *, kubeconfig: str = "", context: str = "") -> None:
         self._kubeconfig = kubeconfig
@@ -187,10 +187,10 @@ class K8sContainmentAdapter:
         if ac == ActionClass.ISOLATE_POD:
             return (
                 [
-                    f"kubectl label pod {t} -n {ns} aegis-quarantine=true --overwrite",
-                    f"kubectl apply -f - # NetworkPolicy '{self._DENY_ALL_NETPOL}' selecting aegis-quarantine=true in ns/{ns}, deny all ingress+egress",
+                    f"kubectl label pod {t} -n {ns} kronagent-quarantine=true --overwrite",
+                    f"kubectl apply -f - # NetworkPolicy '{self._DENY_ALL_NETPOL}' selecting kronagent-quarantine=true in ns/{ns}, deny all ingress+egress",
                 ],
-                f"kubectl label pod {t} -n {ns} aegis-quarantine- ; kubectl delete networkpolicy {self._DENY_ALL_NETPOL} -n {ns}",
+                f"kubectl label pod {t} -n {ns} kronagent-quarantine- ; kubectl delete networkpolicy {self._DENY_ALL_NETPOL} -n {ns}",
                 f"isolate pod {ns}/{t} with a deny-all NetworkPolicy",
             )
         if ac == ActionClass.CORDON_NODE:
@@ -243,14 +243,14 @@ class K8sContainmentAdapter:
 
         if ac == ActionClass.ISOLATE_POD:
             core.patch_namespaced_pod(
-                t, ns, {"metadata": {"labels": {"aegis-quarantine": "true"}}}
+                t, ns, {"metadata": {"labels": {"kronagent-quarantine": "true"}}}
             )
             from kubernetes import client
             policy_name = self._DENY_ALL_NETPOL
             policy = client.V1NetworkPolicy(
                 metadata=client.V1ObjectMeta(name=policy_name, namespace=ns),
                 spec=client.V1NetworkPolicySpec(
-                    pod_selector=client.V1LabelSelector(match_labels={"aegis-quarantine": "true"}),
+                    pod_selector=client.V1LabelSelector(match_labels={"kronagent-quarantine": "true"}),
                     policy_types=["Ingress", "Egress"],
                     ingress=[],
                     egress=[]
@@ -265,6 +265,6 @@ class K8sContainmentAdapter:
                     raise
             return (
                 f"pod {ns}/{t} isolated with deny-all NetworkPolicy '{policy_name}'",
-                f"kubectl label pod {t} -n {ns} aegis-quarantine- ; kubectl delete networkpolicy {policy_name} -n {ns}"
+                f"kubectl label pod {t} -n {ns} kronagent-quarantine- ; kubectl delete networkpolicy {policy_name} -n {ns}"
             )
         raise NotImplementedError(f"real k8s execution for {ac.value} not enabled in this slice")

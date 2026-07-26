@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from aegis.identity import (
+from kronagent.identity import (
     AuthContext,
     AuthorizationError,
     LocalIdentityProvider,
@@ -181,7 +181,7 @@ def test_audit_fields_capture_provenance() -> None:
 
 import base64
 import time
-from aegis.identity import base64url_decode, OidcIdentityProvider
+from kronagent.identity import base64url_decode, OidcIdentityProvider
 
 def _encode_jwt_parts(header: dict, payload: dict) -> str:
     h_b64 = base64.urlsafe_b64encode(json.dumps(header).encode("utf-8")).decode("utf-8").rstrip("=")
@@ -197,7 +197,7 @@ def test_base64url_decode() -> None:
 def test_oidc_authenticate_success() -> None:
     payload = {
         "iss": "https://accounts.google.com",
-        "aud": "aegis-cli",
+        "aud": "kronagent-cli",
         "sub": "user-123",
         "email": "alice@example.com",
         "exp": int(time.time()) + 3600,
@@ -208,7 +208,7 @@ def test_oidc_authenticate_success() -> None:
     
     provider = OidcIdentityProvider(
         issuer="https://accounts.google.com",
-        audience="aegis-cli",
+        audience="kronagent-cli",
         verify_signature=False
     )
     
@@ -227,14 +227,14 @@ def test_oidc_authenticate_success() -> None:
 def test_oidc_authenticate_expired() -> None:
     payload = {
         "iss": "https://accounts.google.com",
-        "aud": "aegis-cli",
+        "aud": "kronagent-cli",
         "sub": "user-123",
         "exp": int(time.time()) - 10,
     }
     token = _encode_jwt_parts({"alg": "none"}, payload)
     provider = OidcIdentityProvider(
         issuer="https://accounts.google.com",
-        audience="aegis-cli",
+        audience="kronagent-cli",
         verify_signature=False
     )
     assert provider.authenticate("user-123", token) is None
@@ -243,14 +243,14 @@ def test_oidc_authenticate_expired() -> None:
 def test_oidc_authenticate_issuer_mismatch() -> None:
     payload = {
         "iss": "https://mismatched-issuer.com",
-        "aud": "aegis-cli",
+        "aud": "kronagent-cli",
         "sub": "user-123",
         "exp": int(time.time()) + 3600,
     }
     token = _encode_jwt_parts({"alg": "none"}, payload)
     provider = OidcIdentityProvider(
         issuer="https://accounts.google.com",
-        audience="aegis-cli",
+        audience="kronagent-cli",
         verify_signature=False
     )
     assert provider.authenticate("user-123", token) is None
@@ -266,7 +266,7 @@ def test_oidc_authenticate_audience_mismatch() -> None:
     token = _encode_jwt_parts({"alg": "none"}, payload)
     provider = OidcIdentityProvider(
         issuer="https://accounts.google.com",
-        audience="aegis-cli",
+        audience="kronagent-cli",
         verify_signature=False
     )
     assert provider.authenticate("user-123", token) is None
@@ -275,14 +275,14 @@ def test_oidc_authenticate_audience_mismatch() -> None:
 def test_oidc_authenticate_operator_mismatch() -> None:
     payload = {
         "iss": "https://accounts.google.com",
-        "aud": "aegis-cli",
+        "aud": "kronagent-cli",
         "sub": "user-123",
         "exp": int(time.time()) + 3600,
     }
     token = _encode_jwt_parts({"alg": "none"}, payload)
     provider = OidcIdentityProvider(
         issuer="https://accounts.google.com",
-        audience="aegis-cli",
+        audience="kronagent-cli",
         verify_signature=False
     )
     assert provider.authenticate("wrong-user", token) is None
@@ -291,7 +291,7 @@ def test_oidc_authenticate_operator_mismatch() -> None:
 def test_oidc_resolve_actor_sso() -> None:
     payload = {
         "iss": "https://accounts.google.com",
-        "aud": "aegis-cli",
+        "aud": "kronagent-cli",
         "sub": "alice",
         "exp": int(time.time()) + 3600,
         "roles": ["approver"]
@@ -305,7 +305,7 @@ def test_oidc_resolve_actor_sso() -> None:
         operator_id="alice",
         token=token,
         oidc_issuer="https://accounts.google.com",
-        oidc_audience="aegis-cli",
+        oidc_audience="kronagent-cli",
         oidc_verify_signature=False
     )
     assert ctx.identity_verified is True
@@ -321,7 +321,7 @@ def test_oidc_resolve_actor_sso() -> None:
             operator_id="alice",
             token=token,
             oidc_issuer="https://accounts.google.com",
-            oidc_audience="aegis-cli",
+            oidc_audience="kronagent-cli",
             oidc_verify_signature=False
         )
 
@@ -336,7 +336,7 @@ def test_oidc_signature_verification(monkeypatch) -> None:
 
     payload = {
         "iss": "https://accounts.google.com",
-        "aud": "aegis-cli",
+        "aud": "kronagent-cli",
         "sub": "alice",
         "exp": int(time.time()) + 3600,
         "roles": ["admin"]
@@ -346,7 +346,7 @@ def test_oidc_signature_verification(monkeypatch) -> None:
 
     provider = OidcIdentityProvider(
         issuer="https://accounts.google.com",
-        audience="aegis-cli",
+        audience="kronagent-cli",
         jwks_uri="https://accounts.google.com/keys",
         verify_signature=True
     )

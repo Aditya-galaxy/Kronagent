@@ -1,5 +1,5 @@
 """
-Unit and integration tests for the Aegis Analyst Console Web Server.
+Unit and integration tests for the Kronagent Analyst Console Web Server.
 """
 
 from __future__ import annotations
@@ -11,11 +11,11 @@ import pytest
 
 from fastapi.testclient import TestClient
 
-from aegis.web import app
-from aegis.approvals import ApprovalStore, ApprovalRequest
-from aegis.allowlist import AllowlistStore
-from aegis.audit import AuditLog
-from aegis.schemas import ActionClass, AuditRecord
+from kronagent.web import app
+from kronagent.approvals import ApprovalStore, ApprovalRequest
+from kronagent.allowlist import AllowlistStore
+from kronagent.audit import AuditLog
+from kronagent.schemas import ActionClass, AuditRecord
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def test_env():
         temp_registry_path = os.path.join(temp_dir, "test_registry.json")
         
         # Write dummy registry
-        from aegis.identity import hash_token
+        from kronagent.identity import hash_token
         registry_data = {
             "alice": {
                 "display_name": "Alice Admin",
@@ -47,8 +47,8 @@ def test_env():
             json.dump(registry_data, f)
 
         # Import modules to override
-        from aegis import web
-        from aegis.config import Settings
+        from kronagent import web
+        from kronagent.config import Settings
         
         test_settings = Settings(
             dry_run=True,
@@ -85,7 +85,7 @@ def test_read_index(test_env) -> None:
     client, _, _, _ = test_env
     res = client.get("/")
     assert res.status_code == 200
-    assert "Aegis Analyst Console" in res.text
+    assert "Kronagent Analyst Console" in res.text
 
 
 def test_get_status(test_env) -> None:
