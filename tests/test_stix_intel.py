@@ -1,6 +1,6 @@
 import pytest
-from aegis.model import Finding, ResourceRef
-from aegis.intel import ThreatIntelAgent, StixFeedDb, StixIndicator
+from kronagent.model import Finding, ResourceRef
+from kronagent.intel import ThreatIntelAgent, StixFeedDb, StixIndicator
 
 @pytest.mark.asyncio
 async def test_stix_feed_matching():

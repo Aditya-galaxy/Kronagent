@@ -40,7 +40,7 @@ from pydantic import ValidationError
 from .model import Finding
 
 # A normalizer turns one native event dict into a provider-neutral Finding.
-# Provided by the caller (from aegis.providers.NORMALIZERS), so ingestion is
+# Provided by the caller (from kronagent.providers.NORMALIZERS), so ingestion is
 # transport-only and knows nothing about any provider's wire schema.
 Normalizer = Callable[[dict], Finding]
 

@@ -9,9 +9,9 @@ import json
 
 import pytest
 
-from aegis.allowlist import AllowlistStore
-from aegis.audit import AuditLog
-from aegis.schemas import ActionClass
+from kronagent.allowlist import AllowlistStore
+from kronagent.audit import AuditLog
+from kronagent.schemas import ActionClass
 
 
 @pytest.fixture

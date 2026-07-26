@@ -9,9 +9,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aegis.providers.aws import AwsContainmentAdapter
-from aegis.providers.k8s import K8sContainmentAdapter
-from aegis.schemas import ActionClass, ProposedAction
+from kronagent.providers.aws import AwsContainmentAdapter
+from kronagent.providers.k8s import K8sContainmentAdapter
+from kronagent.schemas import ActionClass, ProposedAction
 
 
 # --------------------------------------------------------------------------- #
@@ -84,12 +84,12 @@ def test_aws_revoke_role_sessions_success(mock_boto_client) -> None:
     detail, rollback = adapter._perform_sync(action)
 
     assert "active sessions revoked for role svc-backup-role" in detail
-    assert "iam.delete_role_policy(RoleName='svc-backup-role', PolicyName='aegis-revoke-sessions')" in rollback
+    assert "iam.delete_role_policy(RoleName='svc-backup-role', PolicyName='kronagent-revoke-sessions')" in rollback
 
     mock_iam.put_role_policy.assert_called_once()
     kwargs = mock_iam.put_role_policy.call_args[1]
     assert kwargs["RoleName"] == "svc-backup-role"
-    assert kwargs["PolicyName"] == "aegis-revoke-sessions"
+    assert kwargs["PolicyName"] == "kronagent-revoke-sessions"
 
     policy = json.loads(kwargs["PolicyDocument"])
     assert policy["Statement"][0]["Effect"] == "Deny"
@@ -125,15 +125,15 @@ def test_k8s_isolate_pod_success(mock_load_config) -> None:
     detail, rollback = adapter._perform_sync(action)
 
     assert "pod payments/payments-api-7f9c8d isolated with deny-all NetworkPolicy" in detail
-    assert "kubectl label pod payments-api-7f9c8d -n payments aegis-quarantine-" in rollback
+    assert "kubectl label pod payments-api-7f9c8d -n payments kronagent-quarantine-" in rollback
 
     mock_core.patch_namespaced_pod.assert_called_once_with(
         "payments-api-7f9c8d",
         "payments",
-        {"metadata": {"labels": {"aegis-quarantine": "true"}}},
+        {"metadata": {"labels": {"kronagent-quarantine": "true"}}},
     )
 
     mock_net.create_namespaced_network_policy.assert_called_once()
     args = mock_net.create_namespaced_network_policy.call_args[0]
     assert args[0] == "payments"
-    assert args[1].metadata.name == "aegis-quarantine-deny-all"
+    assert args[1].metadata.name == "kronagent-quarantine-deny-all"

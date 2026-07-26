@@ -32,7 +32,7 @@ class Signer(abc.ABC):
 class LocalAsymmetricSigner(Signer):
     """Local RSA Asymmetric Signer utilizing cryptography primitives."""
 
-    def __init__(self, key_path: str = "aegis_key.pem") -> None:
+    def __init__(self, key_path: str = "kronagent_key.pem") -> None:
         self.key_path = key_path
         self._private_key = self._load_or_generate_key()
         self._public_key = self._private_key.public_key()
@@ -118,5 +118,5 @@ def get_signer(settings: Settings) -> Signer:
 
     # Resolve local pem path in the same directory as the database if configured
     key_dir = os.path.dirname(settings.db_path) if settings.db_path else ""
-    key_path = os.path.join(key_dir, "aegis_key.pem") if key_dir else "aegis_key.pem"
+    key_path = os.path.join(key_dir, "kronagent_key.pem") if key_dir else "kronagent_key.pem"
     return LocalAsymmetricSigner(key_path)

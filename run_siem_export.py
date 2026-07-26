@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Aegis — SIEM OCSF Export Utility.
+Kronagent — SIEM OCSF Export Utility.
 
 Parses the cryptographic, hash-chained audit log and exports it as an 
 OCSF-compliant JSONL file ready for ingestion into SIEMs like Splunk or Sentinel.
@@ -15,13 +15,13 @@ import os
 import sys
 from collections import Counter
 
-from aegis.audit import AuditLog
-from aegis.config import Settings
-from aegis.ocsf import to_ocsf_event
+from kronagent.audit import AuditLog
+from kronagent.config import Settings
+from kronagent.ocsf import to_ocsf_event
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Export Aegis audit logs to OCSF JSONL format.")
+    parser = argparse.ArgumentParser(description="Export Kronagent audit logs to OCSF JSONL format.")
     parser.add_argument(
         "--audit-log",
         type=str,
@@ -31,8 +31,8 @@ def main() -> int:
     parser.add_argument(
         "--output",
         type=str,
-        default="aegis_ocsf_export.jsonl",
-        help="Path to write the OCSF-compliant export. Defaults to 'aegis_ocsf_export.jsonl'."
+        default="kronagent_ocsf_export.jsonl",
+        help="Path to write the OCSF-compliant export. Defaults to 'kronagent_ocsf_export.jsonl'."
     )
     
     args = parser.parse_args()

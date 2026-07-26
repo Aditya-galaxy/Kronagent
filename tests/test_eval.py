@@ -20,6 +20,6 @@ def test_run_eval_script_execution() -> None:
     )
     
     assert result.returncode == 0
-    assert "AEGIS PIPELINE EVALUATION REPORT" in result.stdout
+    assert "KRONAGENT PIPELINE EVALUATION REPORT" in result.stdout
     assert "EVALUATION PASSED" in result.stdout
     assert "F1 Score:  100.00%" in result.stdout

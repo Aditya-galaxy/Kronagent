@@ -11,17 +11,17 @@ from __future__ import annotations
 
 import pytest
 
-from aegis.commander import (
+from kronagent.commander import (
     IncidentAssessment,
     IncidentCommanderAgent,
     _fmt_correlation,
     _fmt_intel,
     _LLMCommanderOutput,
 )
-from aegis.correlation import CorrelationAssessment
-from aegis.intel import MitreTechnique, ThreatIntelAssessment
-from aegis.model import Finding
-from aegis.schemas import TriageVerdict
+from kronagent.correlation import CorrelationAssessment
+from kronagent.intel import MitreTechnique, ThreatIntelAssessment
+from kronagent.model import Finding
+from kronagent.schemas import TriageVerdict
 
 
 def _finding(finding_id: str = "f-1", severity: float = 8.0) -> Finding:

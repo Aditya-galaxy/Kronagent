@@ -75,9 +75,9 @@ class Orchestrator:
         self._correlation = correlation
         self._commander = commander
         self._forensics = forensics
-        # Behavioral-trajectory guard: the automatic kill switch over Aegis's own
+        # Behavioral-trajectory guard: the automatic kill switch over Kronagent's own
         # action stream. Session-scoped and shared across tenants/workers — a
-        # runaway is a property of this Aegis process, not of one tenant.
+        # runaway is a property of this Kronagent process, not of one tenant.
         self._trajectory = trajectory
         # Session-scoped campaign memory cache per tenant
         self._tenant_memories: dict[str, CorrelationMemory] = {}
@@ -223,7 +223,7 @@ class Orchestrator:
         guard = self._trajectory
         for action in candidates:
             # 2a. Behavioral-trajectory guard — the automatic kill switch over
-            # Aegis's OWN action stream, applied BEFORE the policy engine so a
+            # Kronagent's OWN action stream, applied BEFORE the policy engine so a
             # redirected or runaway action never reaches execution or the
             # approval queue. Deterministic, so it cannot itself be injected.
             if guard is not None:

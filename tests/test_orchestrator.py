@@ -13,13 +13,13 @@ from typing import Callable
 
 import pytest
 
-from aegis.approvals import ApprovalStore
-from aegis.audit import AuditLog
-from aegis.containment import ContainmentExecutor
-from aegis.ingestion import QueuedFinding
-from aegis.model import Finding
-from aegis.orchestrator import Orchestrator
-from aegis.schemas import ActionClass, PolicyDecision, ProposedAction, TriageVerdict
+from kronagent.approvals import ApprovalStore
+from kronagent.audit import AuditLog
+from kronagent.containment import ContainmentExecutor
+from kronagent.ingestion import QueuedFinding
+from kronagent.model import Finding
+from kronagent.orchestrator import Orchestrator
+from kronagent.schemas import ActionClass, PolicyDecision, ProposedAction, TriageVerdict
 
 from .conftest import FakeContainmentAdapter, make_decision
 
@@ -62,7 +62,7 @@ class FakeThreatIntel:
         self.assess_calls: list[str] = []
 
     async def assess(self, finding: Finding):
-        from aegis.intel import MitreTechnique, ThreatIntelAssessment
+        from kronagent.intel import MitreTechnique, ThreatIntelAssessment
         self.assess_calls.append(finding.finding_id)
         return ThreatIntelAssessment(
             finding_id=finding.finding_id, available=True,
@@ -119,7 +119,7 @@ class FakeCorrelation:
         self.seen_prior: dict[str, list[str]] = {}
 
     async def assess(self, finding, prior):
-        from aegis.correlation import CorrelationAssessment
+        from kronagent.correlation import CorrelationAssessment
         prior_ids = [s.finding_id for s in prior]
         self.seen_prior[finding.finding_id] = prior_ids
         return CorrelationAssessment(
@@ -470,7 +470,7 @@ class FakeCommander:
         self.calls: list[tuple] = []
 
     async def assess(self, finding, verdict, intel, correlation):
-        from aegis.commander import IncidentAssessment
+        from kronagent.commander import IncidentAssessment
         self.calls.append((finding.finding_id, intel.available, correlation.available))
         return IncidentAssessment(
             finding_id=finding.finding_id, available=True,
@@ -486,7 +486,7 @@ class RecordingForensics:
         self._log = call_log
 
     async def collect(self, finding, audit):
-        from aegis.forensics import EvidenceItem, ForensicsResult
+        from kronagent.forensics import EvidenceItem, ForensicsResult
         self._log.append("forensics")
         item = EvidenceItem(kind="aws.ebs.snapshot", target="i-1",
                             description="d", collection_calls=["c"]).with_custody_hash()
@@ -597,7 +597,7 @@ async def test_pipeline_works_with_neither_new_agent(settings) -> None:
 # --------------------------------------------------------------------------- #
 
 def _finding_with_resource(finding_id: str, kind: str, resource_id: str) -> Finding:
-    from aegis.model import ResourceRef
+    from kronagent.model import ResourceRef
     return Finding(
         provider="kubernetes", finding_id=finding_id, finding_type="k8s:test", severity=8.0,
         resources=[ResourceRef(kind=kind, id=resource_id, attributes={})],
@@ -608,7 +608,7 @@ async def test_trajectory_scope_violation_blocks_before_policy(settings) -> None
     """An action redirected onto a resource the finding never implicated is
     blocked by the guard BEFORE the policy engine ever sees it, and audited as a
     scope violation. This is the prompt-injection-to-wrong-resource defense."""
-    from aegis.trajectory import TrajectoryConfig, TrajectoryGuard
+    from kronagent.trajectory import TrajectoryConfig, TrajectoryGuard
 
     guard = TrajectoryGuard(TrajectoryConfig(enforce_scope=True, max_scope_violations=1))
     # Finding implicates pod-1; the candidate targets a DIFFERENT pod.
@@ -633,7 +633,7 @@ async def test_trajectory_scope_violation_blocks_before_policy(settings) -> None
 
 async def test_trajectory_in_scope_action_flows_normally(settings) -> None:
     """The guard must not interfere with legitimate, in-scope actions."""
-    from aegis.trajectory import TrajectoryConfig, TrajectoryGuard
+    from kronagent.trajectory import TrajectoryConfig, TrajectoryGuard
 
     guard = TrajectoryGuard(TrajectoryConfig(enforce_scope=True))
     finding = _finding_with_resource("f-1", "k8s.pod", "pod-1")
@@ -655,7 +655,7 @@ async def test_trajectory_runaway_halt_blocks_subsequent_actions(settings) -> No
     """Once the autonomous-execution ceiling is crossed the halt latches, and
     every later action is blocked at the top of the loop — before the policy
     engine — for the rest of the session."""
-    from aegis.trajectory import TrajectoryConfig, TrajectoryGuard
+    from kronagent.trajectory import TrajectoryConfig, TrajectoryGuard
 
     # Ceiling of 2: the 3rd auto-execution trips the halt; the 4th is blocked
     # before policy. Scope enforcement off so it doesn't interfere.

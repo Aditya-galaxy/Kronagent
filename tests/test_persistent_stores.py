@@ -7,10 +7,10 @@ from __future__ import annotations
 import os
 import sqlite3
 import pytest
-from aegis.correlation import CorrelationMemory, FindingSummary
-from aegis.approvals import ApprovalStore, ApprovalRequest
-from aegis.model import Finding, ResourceRef
-from aegis.schemas import ActionClass
+from kronagent.correlation import CorrelationMemory, FindingSummary
+from kronagent.approvals import ApprovalStore, ApprovalRequest
+from kronagent.model import Finding, ResourceRef
+from kronagent.schemas import ActionClass
 
 
 def test_correlation_memory_sqlite(tmp_path) -> None:

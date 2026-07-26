@@ -12,8 +12,8 @@ import json
 
 import pytest
 
-from aegis.audit import AuditLog
-from aegis.schemas import AuditRecord
+from kronagent.audit import AuditLog
+from kronagent.schemas import AuditRecord
 
 
 def _record(finding_id: str = "f-1", stage: str = "triage", **payload) -> AuditRecord:

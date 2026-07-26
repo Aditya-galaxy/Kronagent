@@ -9,9 +9,9 @@ import os
 from unittest.mock import MagicMock
 import pytest
 
-from aegis.audit import AuditLog, _canonical, _hash_entry
-from aegis.compliance import ComplianceExporter
-from aegis.schemas import AuditRecord
+from kronagent.audit import AuditLog, _canonical, _hash_entry
+from kronagent.compliance import ComplianceExporter
+from kronagent.schemas import AuditRecord
 
 
 def test_compliance_exporter_empty(tmp_path) -> None:

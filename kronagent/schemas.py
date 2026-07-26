@@ -2,8 +2,8 @@
 Typed contracts for the pipeline — provider-neutral internal types.
 
 Provider wire schemas (GuardDuty, Kubernetes audit, ...) live in their own
-provider modules (aegis/providers/*.py) and normalize into the neutral
-`Finding` (aegis/model.py). This module holds only what's shared across every
+provider modules (kronagent/providers/*.py) and normalize into the neutral
+`Finding` (kronagent/model.py). This module holds only what's shared across every
 provider: the action taxonomy, triage verdict, proposed actions, policy
 decisions, action outcomes, and audit records.
 """

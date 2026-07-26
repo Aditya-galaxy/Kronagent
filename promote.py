@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Aegis governance CLI — the earn-trust dial.
+Kronagent governance CLI — the earn-trust dial.
 
 Promotes or demotes an action class between "always needs human approval" and
 "executes autonomously when auto-eligible." This is the single most
@@ -28,12 +28,12 @@ import asyncio
 import os
 import sys
 
-from aegis.allowlist import AllowlistStore
-from aegis.audit import AuditLog
-from aegis.config import Settings
-from aegis.identity import AuthContext, AuthorizationError, Permission, resolve_actor
-from aegis.policy import PolicyEngine
-from aegis.schemas import ActionClass, AuditRecord
+from kronagent.allowlist import AllowlistStore
+from kronagent.audit import AuditLog
+from kronagent.config import Settings
+from kronagent.identity import AuthContext, AuthorizationError, Permission, resolve_actor
+from kronagent.policy import PolicyEngine
+from kronagent.schemas import ActionClass, AuditRecord
 
 
 def _resolve(settings: Settings, audit: AuditLog, args: argparse.Namespace,
@@ -45,7 +45,7 @@ def _resolve(settings: Settings, audit: AuditLog, args: argparse.Namespace,
             required=required,
             by=getattr(args, "by", None),
             operator_id=getattr(args, "as_operator", None),
-            token=getattr(args, "token", None) or os.getenv("AEGIS_OPERATOR_TOKEN"),
+            token=getattr(args, "token", None) or os.getenv("KRONAGENT_OPERATOR_TOKEN"),
             oidc_issuer=settings.oidc_issuer,
             oidc_audience=settings.oidc_audience,
             oidc_jwks_uri=settings.oidc_jwks_uri,
@@ -120,7 +120,7 @@ def main() -> int:
     store = AllowlistStore(settings.allowlist_store_path, seed=settings.auto_execute_allowlist)
     audit = AuditLog(settings.audit_log_path)
 
-    parser = argparse.ArgumentParser(description="Aegis earn-trust governance CLI")
+    parser = argparse.ArgumentParser(description="Kronagent earn-trust governance CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("list", help="show the current auto-execute allowlist")
@@ -131,7 +131,7 @@ def main() -> int:
     def _add_identity(p: argparse.ArgumentParser) -> None:
         p.add_argument("--by", help="operator identity, unauthenticated mode (audited)")
         p.add_argument("--as", dest="as_operator", help="authenticated operator id (enforced mode)")
-        p.add_argument("--token", help="operator token (or set AEGIS_OPERATOR_TOKEN)")
+        p.add_argument("--token", help="operator token (or set KRONAGENT_OPERATOR_TOKEN)")
 
     p_add = sub.add_parser("add", help="promote an action class to autonomous execution")
     p_add.add_argument("action_class")

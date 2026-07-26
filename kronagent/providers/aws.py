@@ -235,12 +235,12 @@ class AwsContainmentAdapter:
             )
         if ac == ActionClass.ATTACH_DENY_ALL_TO_PRINCIPAL:
             return (
-                [f"iam.put_user_policy(UserName='{t}', PolicyName='aegis-quarantine-deny-all', PolicyDocument=<deny-all>)"],
-                f"iam.delete_user_policy(UserName='{t}', PolicyName='aegis-quarantine-deny-all')",
+                [f"iam.put_user_policy(UserName='{t}', PolicyName='kronagent-quarantine-deny-all', PolicyDocument=<deny-all>)"],
+                f"iam.delete_user_policy(UserName='{t}', PolicyName='kronagent-quarantine-deny-all')",
                 f"attach deny-all inline policy to user {t}",
             )
         if ac == ActionClass.ISOLATE_INSTANCE_SG:
-            sg = self._quarantine_sg or "<AEGIS_QUARANTINE_SG_ID unset>"
+            sg = self._quarantine_sg or "<KRONAGENT_QUARANTINE_SG_ID unset>"
             return (
                 [
                     f"ec2.describe_instances(InstanceIds=['{t}'])  # capture original SGs for rollback",
@@ -250,7 +250,7 @@ class AwsContainmentAdapter:
                 f"isolate instance {t} into quarantine SG {sg}",
             )
         if ac == ActionClass.BLOCK_IP:
-            nacl = self._quarantine_nacl or "<AEGIS_QUARANTINE_NACL_ID unset>"
+            nacl = self._quarantine_nacl or "<KRONAGENT_QUARANTINE_NACL_ID unset>"
             return (
                 [
                     f"ec2.create_network_acl_entry(NetworkAclId='{nacl}', RuleNumber=<ingress_rule>, Protocol='-1', RuleAction='deny', Egress=False, CidrBlock='{t}/32')",
@@ -261,8 +261,8 @@ class AwsContainmentAdapter:
             )
         if ac == ActionClass.REVOKE_ROLE_SESSIONS:
             return (
-                [f"iam.put_role_policy(RoleName='{t}', PolicyName='aegis-revoke-sessions', <deny before now>)"],
-                f"iam.delete_role_policy(RoleName='{t}', PolicyName='aegis-revoke-sessions')",
+                [f"iam.put_role_policy(RoleName='{t}', PolicyName='kronagent-revoke-sessions', <deny before now>)"],
+                f"iam.delete_role_policy(RoleName='{t}', PolicyName='kronagent-revoke-sessions')",
                 f"revoke active sessions for role {t}",
             )
         if ac == ActionClass.TERMINATE_INSTANCE:
@@ -295,7 +295,7 @@ class AwsContainmentAdapter:
                 if "NotFound" in code or "NoSuch" in code:
                     raise RuntimeError(f"AWS Resource not found: {exc.response.get('Error', {}).get('Message')}") from exc
                 if code in ("AccessDenied", "AccessDeniedException", "UnauthorizedOperation"):
-                    raise RuntimeError(f"Aegis IAM Access Denied: {exc.response.get('Error', {}).get('Message')}") from exc
+                    raise RuntimeError(f"Kronagent IAM Access Denied: {exc.response.get('Error', {}).get('Message')}") from exc
                 raise
 
     async def perform(self, action: ProposedAction) -> tuple[str, str]:
@@ -311,13 +311,13 @@ class AwsContainmentAdapter:
                     f"iam.update_access_key(UserName='{user}', AccessKeyId='{t}', Status='Active')")
         if ac == ActionClass.ATTACH_DENY_ALL_TO_PRINCIPAL:
             self._aws_call(self._iam_client().put_user_policy,
-                UserName=t, PolicyName="aegis-quarantine-deny-all", PolicyDocument=_DENY_ALL_POLICY
+                UserName=t, PolicyName="kronagent-quarantine-deny-all", PolicyDocument=_DENY_ALL_POLICY
             )
             return (f"deny-all policy attached to {t}",
-                    f"iam.delete_user_policy(UserName='{t}', PolicyName='aegis-quarantine-deny-all')")
+                    f"iam.delete_user_policy(UserName='{t}', PolicyName='kronagent-quarantine-deny-all')")
         if ac == ActionClass.ISOLATE_INSTANCE_SG:
             if not self._quarantine_sg:
-                raise RuntimeError("AEGIS_QUARANTINE_SG_ID is not configured")
+                raise RuntimeError("KRONAGENT_QUARANTINE_SG_ID is not configured")
             ec2 = self._ec2_client()
             desc = self._aws_call(ec2.describe_instances, InstanceIds=[t])
             original = [
@@ -330,7 +330,7 @@ class AwsContainmentAdapter:
                     f"ec2.modify_instance_attribute(InstanceId='{t}', Groups={original})")
         if ac == ActionClass.BLOCK_IP:
             if not self._quarantine_nacl:
-                raise RuntimeError("AEGIS_QUARANTINE_NACL_ID is not configured")
+                raise RuntimeError("KRONAGENT_QUARANTINE_NACL_ID is not configured")
             ec2 = self._ec2_client()
             desc = self._aws_call(ec2.describe_network_acls, NetworkAclIds=[self._quarantine_nacl])
             entries = desc["NetworkAcls"][0]["Entries"]
@@ -379,12 +379,12 @@ class AwsContainmentAdapter:
             }, separators=(",", ":"))
             self._aws_call(self._iam_client().put_role_policy,
                 RoleName=t,
-                PolicyName="aegis-revoke-sessions",
+                PolicyName="kronagent-revoke-sessions",
                 PolicyDocument=policy_doc
             )
             return (
                 f"active sessions revoked for role {t} (issued before {now_str})",
-                f"iam.delete_role_policy(RoleName='{t}', PolicyName='aegis-revoke-sessions')"
+                f"iam.delete_role_policy(RoleName='{t}', PolicyName='kronagent-revoke-sessions')"
             )
         if ac == ActionClass.TERMINATE_INSTANCE:
             self._aws_call(self._ec2_client().terminate_instances, InstanceIds=[t])

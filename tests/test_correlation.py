@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from aegis.correlation import (
+from kronagent.correlation import (
     CorrelationAgent,
     CorrelationAssessment,
     CorrelationMemory,
@@ -20,7 +20,7 @@ from aegis.correlation import (
     RelatedFinding,
     _LLMCorrelationOutput,
 )
-from aegis.model import Finding, ResourceRef
+from kronagent.model import Finding, ResourceRef
 
 
 def _finding(finding_id: str, *, provider: str = "aws", severity: float = 8.0,

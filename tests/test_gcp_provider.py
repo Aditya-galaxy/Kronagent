@@ -1,14 +1,14 @@
 import pytest
-from aegis.model import Finding, ResourceRef
-from aegis.schemas import ActionClass, ProposedAction, PolicyDecision
-from aegis.providers.gcp import (
+from kronagent.model import Finding, ResourceRef
+from kronagent.schemas import ActionClass, ProposedAction, PolicyDecision
+from kronagent.providers.gcp import (
     PROVIDER,
     normalize_gcp_scc,
     plan_gcp_actions,
     GcpContainmentAdapter
 )
-from aegis.containment import ContainmentExecutor
-from aegis.config import Settings
+from kronagent.containment import ContainmentExecutor
+from kronagent.config import Settings
 
 def test_normalize_gcp_scc_nested():
     raw_payload = {
