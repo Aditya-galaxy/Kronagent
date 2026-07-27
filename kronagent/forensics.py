@@ -31,6 +31,10 @@ Ordering: forensics runs BEFORE containment in the pipeline, so evidence is
 preserved before a containment action can alter the resource's state (you
 snapshot the instance before you isolate or terminate it).
 """
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com
+# Source-available, not open source. Commercial use requires a licence —
+# see LICENSE or contact licensing@kronagent.com
 
 from __future__ import annotations
 

@@ -28,6 +28,10 @@ Enforcement is registry-gated, so nothing breaks that doesn't opt in:
     The audit trail is honest about the strength of the identity behind each
     decision rather than silently treating a string as proof.
 """
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com
+# Source-available, not open source. Commercial use requires a licence —
+# see LICENSE or contact licensing@kronagent.com
 
 from __future__ import annotations
 
