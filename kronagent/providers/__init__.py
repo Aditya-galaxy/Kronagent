@@ -11,6 +11,10 @@ provider-agnostic. Adding a source — Azure Defender, GCP SCC, an in-house
 syslog detector, another cluster runtime — is a new module here plus an entry
 in these tables; nothing else changes.
 """
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com
+# Source-available, not open source. Commercial use requires a licence —
+# see LICENSE or contact licensing@kronagent.com
 
 from __future__ import annotations
 

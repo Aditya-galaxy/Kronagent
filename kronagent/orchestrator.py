@@ -6,6 +6,10 @@ writes an immutable audit record before the next runs, so the log is a complete
 decision trail even if a later stage fails. Containment is gated by the policy
 engine and the global dry_run / kill_switch controls.
 """
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com
+# Source-available, not open source. Commercial use requires a licence —
+# see LICENSE or contact licensing@kronagent.com
 
 from __future__ import annotations
 
