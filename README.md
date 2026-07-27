@@ -262,3 +262,18 @@ All core roadmap phases (Phases 0 through 5) are implemented and validated:
 - [x] **Phase 3 — Real Cloud Validation**: Programmatic AWS client retry/error wrapper and automated cloud containment chaos drill CLI (`run_cloud_drill.py`).
 - [x] **Phase 4 — Agent Team Security Hardening**: Cryptographic agent-to-agent decision signatures, least-privilege `Permission.VIEW` REST endpoint authorization, and session credential management.
 - [x] **Phase 5 — Extended Integrations**: GCP Security Command Center (GCP SCC) provider (`gcp.py`) and STIX/TAXII threat intelligence feed indicator matching.
+
+---
+
+## Licence
+
+Kronagent is **source-available, not open source**.
+
+You may read, study, fork and modify this code for **noncommercial** purposes.
+Commercial use — including offering it to third parties on a hosted or embedded
+basis — requires a separate licence.
+
+See [`LICENSE`](LICENSE) (PolyForm Noncommercial 1.0.0) for the full terms.
+Commercial licensing: **licensing@kronagent.com**
+
+Copyright (c) 2026 Aditya Kumar, trading as Kronagent · [kronagent.com](https://kronagent.com)

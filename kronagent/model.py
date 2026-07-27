@@ -14,6 +14,10 @@ boundary to be real rather than assumed. The severity scale is normalized to
 0-10 across providers so the single `min_severity_for_containment` threshold and
 the policy engine mean the same thing everywhere.
 """
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com
+# Source-available, not open source. Commercial use requires a licence —
+# see LICENSE or contact licensing@kronagent.com
 
 from __future__ import annotations
 

@@ -7,6 +7,10 @@ provider modules (kronagent/providers/*.py) and normalize into the neutral
 provider: the action taxonomy, triage verdict, proposed actions, policy
 decisions, action outcomes, and audit records.
 """
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com
+# Source-available, not open source. Commercial use requires a licence —
+# see LICENSE or contact licensing@kronagent.com
 
 from __future__ import annotations
 

@@ -7,6 +7,10 @@ Maps:
   * policy, containment, approvals, forensics -> Remediation Activity (class_uid: 7001)
   * governance -> Compliance Finding (class_uid: 2003)
 """
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com
+# Source-available, not open source. Commercial use requires a licence —
+# see LICENSE or contact licensing@kronagent.com
 
 from __future__ import annotations
 

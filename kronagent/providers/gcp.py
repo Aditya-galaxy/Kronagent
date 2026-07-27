@@ -8,6 +8,10 @@ Owns everything vendor-specific about Google Cloud Platform:
     the finding, never from the LLM),
   * GcpContainmentAdapter: ProposedAction -> concrete GCP API plan / execution.
 """
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com
+# Source-available, not open source. Commercial use requires a licence —
+# see LICENSE or contact licensing@kronagent.com
 
 from __future__ import annotations
 
