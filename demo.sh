@@ -82,11 +82,11 @@ rm -f kronagent_audit.jsonl kronagent_approvals.json kronagent_allowlist.json
 clear || true
 printf "${BOLD}${BLUE}"
 cat <<'ART'
-     ▄▄▄       ▓█████   ▄████  ██▓  ██████
-    ▒████▄     ▓█   ▀  ██▒ ▀█▒▓██▒▒██    ▒
-    ▒██  ▀█▄   ▒███   ▒██░▄▄▄░▒██▒░ ▓██▄
-    ░██▄▄▄▄██  ▒▓█  ▄ ░▓█  ██▓░██░  ▒   ██▒
-     ▓█   ▓██▒ ░▒████▒░▒▓███▀▒░██░▒██████▒▒
+   ██  ██ █████  ██████ ██  ██ ██████ ██████ ██████ ██  ██ ██████
+   ██ ██  ██  ██ ██  ██ ███ ██ ██  ██ ██     ██     ███ ██   ██
+   ████   █████  ██  ██ ██████ ██████ ██ ███ █████  ██████   ██
+   ██ ██  ██ ██  ██  ██ ██ ███ ██  ██ ██  ██ ██     ██ ███   ██
+   ██  ██ ██  ██ ██████ ██  ██ ██  ██ ██████ ██████ ██  ██   ██
 ART
 printf "${RESET}"
 printf "   ${BOLD}Autonomous AI Threat Defense — with guardrails enterprises can trust${RESET}\n"
