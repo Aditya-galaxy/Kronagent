@@ -4,6 +4,10 @@ ChatOps Integration Utility for Kronagent.
 Handles Slack Block Kit formatting, sending webhook or bot notifications,
 updating interactive message cards, and verifying Slack signature headers.
 """
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com
+# Source-available, not open source. Commercial use requires a licence —
+# see LICENSE or contact licensing@kronagent.com
 
 from __future__ import annotations
 

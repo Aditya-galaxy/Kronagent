@@ -17,6 +17,10 @@ The local store is a single JSON file rewritten under a lock. That is correct
 for a single-operator slice; production needs a real datastore with row-level
 locking and multi-operator concurrency (noted, not faked).
 """
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com
+# Source-available, not open source. Commercial use requires a licence —
+# see LICENSE or contact licensing@kronagent.com
 
 from __future__ import annotations
 

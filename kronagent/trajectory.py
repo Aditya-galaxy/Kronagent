@@ -31,6 +31,10 @@ Deterministic by design: no LLM, so the safety backstop itself cannot be
 prompt-injected. Session-scoped state (a real multi-replica deployment shares it
 via the datastore); the docstring says so rather than implying more.
 """
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com
+# Source-available, not open source. Commercial use requires a licence —
+# see LICENSE or contact licensing@kronagent.com
 
 from __future__ import annotations
 

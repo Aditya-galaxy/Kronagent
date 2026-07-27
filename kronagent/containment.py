@@ -14,6 +14,10 @@ Execution happens only when the policy engine returned `auto_execute` AND the
 global dry_run flag is off. Cloud/cluster clients are built lazily inside the
 adapters, so the whole pipeline runs in dry-run with no credentials.
 """
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com
+# Source-available, not open source. Commercial use requires a licence —
+# see LICENSE or contact licensing@kronagent.com
 
 from __future__ import annotations
 

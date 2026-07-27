@@ -26,6 +26,10 @@ human), and operators promote one action class at a time — via promote.py,
 never a direct edit — as it proves safe. Every promotion/demotion is written
 to the hash-chained audit log with who did it and why.
 """
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com
+# Source-available, not open source. Commercial use requires a licence —
+# see LICENSE or contact licensing@kronagent.com
 
 from __future__ import annotations
 
