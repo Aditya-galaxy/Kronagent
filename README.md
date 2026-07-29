@@ -232,6 +232,7 @@ python3 -m pytest -q
 
 ## Documentation
 
+- [`docs/use-cases.md`](docs/use-cases.md) — three findings end to end: what responding by hand looks like, what Kronagent does, and where it stops and waits for you
 - [`agent-team-architecture.md`](agent-team-architecture.md) — why each agent is (or isn't) an LLM, and the safety envelope every agent operates inside
 - [`research.md`](research.md) — market landscape, competitive analysis, and the strategic thesis
 - [`deploy/README.md`](deploy/README.md) — IAM policy, EventBridge/SQS wiring for a real AWS deployment
