@@ -411,3 +411,41 @@ def test_every_planned_action_targets_a_resource_the_finding_implicates(
             checked += 1
 
     assert checked > 0, f"{provider} sample produced no actions to check"
+
+
+# --------------------------------------------------------------------------- #
+# Control-plane URL scheme validation
+#
+# urllib honours whatever scheme it is given. An on-prem control plane
+# configured as file:///etc/shadow would be opened as a local file and its
+# contents treated as a containment response — a config-to-file-read primitive
+# inside the component holding the most privilege.
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("bad_url", [
+    "file:///etc/shadow",
+    "file://localhost/etc/passwd",
+    "ftp://internal.example/x",
+    "gopher://internal.example/x",
+    "data:text/plain,contained",
+    "/etc/passwd",                 # no scheme at all
+])
+def test_non_http_control_plane_is_rejected_at_construction(bad_url) -> None:
+    with pytest.raises(ValueError, match="must use http or https"):
+        OnPremContainmentAdapter(control_plane_url=bad_url)
+
+
+@pytest.mark.parametrize("good_url,expected", [
+    ("https://nac.corp.internal", "https://nac.corp.internal"),
+    ("http://10.0.0.5:8443/api/", "http://10.0.0.5:8443/api"),
+    ("HTTPS://NAC.CORP.INTERNAL", "HTTPS://NAC.CORP.INTERNAL"),   # scheme compare is case-insensitive
+])
+def test_http_control_plane_is_accepted(good_url, expected) -> None:
+    assert OnPremContainmentAdapter(control_plane_url=good_url)._url == expected
+
+
+def test_unset_control_plane_still_constructs() -> None:
+    """Unset is legal — plan() must still describe what it *would* do, and
+    perform() refuses separately with its own message. Rejecting empty here
+    would break dry-run planning for anyone who has not wired a control plane."""
+    assert OnPremContainmentAdapter(control_plane_url="")._url == ""

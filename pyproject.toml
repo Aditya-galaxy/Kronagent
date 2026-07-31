@@ -113,13 +113,6 @@ ignore = [
 # every user-supplied value is bound with a `?` placeholder. Verified 2026-07-31.
 "kronagent/approvals.py" = ["S608"]
 
-# urlopen on an operator-configured endpoint (Slack webhook, on-prem control
-# plane). Not attacker-supplied, but the scheme is not validated either — see
-# the note in kronagent_product_roadmap.md. Ignored to unblock CI, not because
-# it is resolved.
-"kronagent/chatops.py" = ["S310"]
-"kronagent/providers/onprem.py" = ["S310"]
-
 # Legacy single-file prototypes that predate the package. Not shipped.
 "incident_response_engine.py" = ["S"]
 "incident_response_gemini.py" = ["S"]

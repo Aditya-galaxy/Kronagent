@@ -158,7 +158,8 @@ class ChatOpsNotifier:
 
         try:
             http_req = urllib.request.Request(url, data=req_bytes, headers=headers, method="POST")
-            with urllib.request.urlopen(http_req, timeout=10) as response:
+            # noqa justified: url is a hardcoded https://slack.com/api literal
+            with urllib.request.urlopen(http_req, timeout=10) as response:  # noqa: S310
                 res_body = json.loads(response.read().decode("utf-8"))
                 if res_body.get("ok"):
                     return res_body.get("ts")
@@ -198,7 +199,8 @@ class ChatOpsNotifier:
 
         try:
             http_req = urllib.request.Request(url, data=req_bytes, headers=headers, method="POST")
-            with urllib.request.urlopen(http_req, timeout=10) as response:
+            # noqa justified: url is a hardcoded https://slack.com/api literal
+            with urllib.request.urlopen(http_req, timeout=10) as response:  # noqa: S310
                 res_body = json.loads(response.read().decode("utf-8"))
                 return bool(res_body.get("ok"))
         except Exception as e:
