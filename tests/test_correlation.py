@@ -14,7 +14,6 @@ import pytest
 
 from kronagent.correlation import (
     CorrelationAgent,
-    CorrelationAssessment,
     CorrelationMemory,
     FindingSummary,
     RelatedFinding,

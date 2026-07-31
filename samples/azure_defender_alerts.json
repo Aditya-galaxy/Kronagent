@@ -1,0 +1,80 @@
+[
+  {
+    "id": "/subscriptions/8f1e2c4a-5b6d-4e7f-9a0b-1c2d3e4f5a6b/resourceGroups/rg-payments/providers/Microsoft.Security/locations/westeurope/alerts/kronagent-azure-credaccess-0001",
+    "name": "kronagent-azure-credaccess-0001",
+    "type": "Microsoft.Security/Locations/alerts",
+    "properties": {
+      "alertType": "VM_SuspiciousCredentialAccess",
+      "alertDisplayName": "Suspicious credential access from a Tor exit node",
+      "description": "A sign-in to the service principal 'svc-deploy' originated from a known Tor exit node, followed by enumeration of key vault secrets from vm-payments-01.",
+      "severity": "High",
+      "timeGenerated": "2026-07-28T02:14:03.482Z",
+      "compromisedEntity": "vm-payments-01",
+      "resourceIdentifiers": [
+        {
+          "type": "AzureResource",
+          "azureResourceId": "/subscriptions/8f1e2c4a-5b6d-4e7f-9a0b-1c2d3e4f5a6b/resourceGroups/rg-payments/providers/Microsoft.Compute/virtualMachines/vm-payments-01"
+        }
+      ],
+      "entities": [
+        { "type": "host", "hostName": "vm-payments-01" },
+        { "type": "ip", "address": "185.220.101.7" },
+        {
+          "type": "account",
+          "name": "svc-deploy",
+          "aadUserId": "3f9a1b2c-7d8e-4f0a-b1c2-d3e4f5a6b7c8",
+          "upnSuffix": "contoso.onmicrosoft.com"
+        }
+      ],
+      "extendedProperties": {
+        "clientLocation": "unknown",
+        "attackTechnique": "T1552.001"
+      }
+    }
+  },
+  {
+    "id": "/subscriptions/8f1e2c4a-5b6d-4e7f-9a0b-1c2d3e4f5a6b/resourceGroups/rg-analytics/providers/Microsoft.Security/locations/westeurope/alerts/kronagent-azure-cryptomine-0002",
+    "name": "kronagent-azure-cryptomine-0002",
+    "type": "Microsoft.Security/Locations/alerts",
+    "properties": {
+      "alertType": "VM_DigitalCurrencyMining",
+      "alertDisplayName": "Digital currency mining activity detected",
+      "description": "Process execution and outbound network patterns on vm-analytics-07 match known XMRig mining pool behaviour.",
+      "severity": "Medium",
+      "timeGenerated": "2026-07-28T02:31:55.109Z",
+      "compromisedEntity": "vm-analytics-07",
+      "resourceIdentifiers": [
+        {
+          "type": "AzureResource",
+          "azureResourceId": "/subscriptions/8f1e2c4a-5b6d-4e7f-9a0b-1c2d3e4f5a6b/resourceGroups/rg-analytics/providers/Microsoft.Compute/virtualMachines/vm-analytics-07"
+        }
+      ],
+      "entities": [
+        { "type": "host", "hostName": "vm-analytics-07" },
+        { "type": "ip", "address": "45.133.1.90" }
+      ],
+      "extendedProperties": {
+        "attackTechnique": "T1496"
+      }
+    }
+  },
+  {
+    "id": "/subscriptions/8f1e2c4a-5b6d-4e7f-9a0b-1c2d3e4f5a6b/resourceGroups/rg-corp/providers/Microsoft.Security/locations/westeurope/alerts/kronagent-azure-recon-0003",
+    "name": "kronagent-azure-recon-0003",
+    "type": "Microsoft.Security/Locations/alerts",
+    "properties": {
+      "alertType": "ARM_MicroBurstEnumeration",
+      "alertDisplayName": "Azure resource enumeration detected",
+      "description": "Broad read-only enumeration of subscription resources, consistent with reconnaissance tooling.",
+      "severity": "Low",
+      "timeGenerated": "2026-07-28T02:40:12.771Z",
+      "entities": [
+        { "type": "ip", "address": "198.51.100.23" },
+        { "type": "account", "name": "guest-analyst", "aadUserId": "9c8b7a6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d" }
+      ],
+      "extendedProperties": {
+        "attackTechnique": "T1580"
+      }
+    }
+  }
+]

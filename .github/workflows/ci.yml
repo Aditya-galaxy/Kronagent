@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor declared in pyproject; 3.13 is what development
+        # uses. Testing both stops a 3.13-only idiom reaching a customer who
+        # is pinned lower.
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install (core only — no cloud SDKs)
+        # Deliberate: the suite must pass with none of boto3/kubernetes/azure/
+        # gcp installed. That is what proves every provider adapter really does
+        # import its SDK lazily, which in turn is what lets the container ship
+        # without the ability to touch a cloud it was not given.
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[dev]"
+
+      - name: Assert no cloud SDK leaked into the environment
+        run: |
+          python - <<'EOF'
+          import importlib.util, sys
+
+          def present(name: str) -> bool:
+              # find_spec raises ModuleNotFoundError for a dotted name whose
+              # PARENT is missing, rather than returning None — so the naive
+              # version of this check failed precisely when the SDK was absent,
+              # which is the state it exists to confirm.
+              try:
+                  return importlib.util.find_spec(name) is not None
+              except (ModuleNotFoundError, ImportError, ValueError):
+                  return False
+
+          leaked = [m for m in ("boto3", "kubernetes", "azure", "google.cloud.compute")
+                    if present(m)]
+          if leaked:
+              sys.exit(f"cloud SDKs present in a core install: {leaked}")
+          print("clean: no cloud SDKs installed")
+          EOF
+
+      - name: Test
+        run: pytest -q
+
+  test-full:
+    # The core job above proves the lazy-import guarantee by running with no
+    # cloud SDKs at all — but that means the AWS containment tests skip. This
+    # job installs everything so those actually execute; between the two, both
+    # the guarantee and the code it protects are covered.
+    name: tests (all extras)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          pip install ".[all,dev,test-aws]"
+      - name: Test, and fail if the AWS paths silently skipped
+        run: |
+          pytest -q -rs | tee /tmp/out
+          if grep -qE 'skipped.*(boto3|moto)' /tmp/out; then
+            echo "AWS tests skipped in the all-extras job — the SDK did not install"
+            exit 1
+          fi
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install ruff
+      - run: ruff check .
+
+  build:
+    name: container image
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: kronagent:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image runs as non-root
+        run: |
+          uid=$(docker run --rm --entrypoint id kronagent:ci -u)
+          echo "container uid: $uid"
+          [ "$uid" != "0" ] || { echo "image runs as root"; exit 1; }
+
+      - name: Image starts and serves /api/status
+        run: |
+          docker run -d --name kronagent-ci -p 8000:8000 kronagent:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/status >/dev/null 2>&1; then
+              echo "console answered after ${i}s"
+              curl -sS http://127.0.0.1:8000/api/status
+              docker rm -f kronagent-ci >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "console never answered:"
+          docker logs kronagent-ci
+          docker rm -f kronagent-ci >/dev/null
+          exit 1
+
+      - name: Dry-run is the default posture
+        # A container that ships with containment armed would be a defect, so
+        # assert the shipped default rather than trusting the Dockerfile ENV.
+        run: |
+          out=$(docker run --rm --entrypoint python kronagent:ci -c \
+            "from kronagent.config import Settings; print(Settings.from_env().dry_run)")
+          echo "dry_run default: $out"
+          [ "$out" = "True" ] || { echo "image does not default to dry-run"; exit 1; }

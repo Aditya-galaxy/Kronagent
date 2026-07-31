@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kronagent Analyst Console</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-shield">🛡️</span>
+                <span class="logo-text">KRONAGENT</span>
+            </div>
+            <!-- Tenant Selector Dropdown -->
+            <div class="tenant-selector-container">
+                <label for="tenant-select">Tenant Partition</label>
+                <select id="tenant-select" class="tenant-select-dropdown">
+                    <option value="default">Default Tenant</option>
+                    <option value="tenant_a">Tenant A</option>
+                    <option value="tenant_b">Tenant B</option>
+                </select>
+            </div>
+            <nav class="nav-menu">
+                <button class="nav-item active" data-tab="overview">
+                    <span class="nav-icon">📊</span> Overview
+                </button>
+                <button class="nav-item" data-tab="queue">
+                    <span class="nav-icon">⏳</span> Approval Queue
+                    <span class="badge pending-count-badge" id="nav-pending-badge">0</span>
+                </button>
+                <button class="nav-item" data-tab="audit">
+                    <span class="nav-icon">📜</span> Audit Explorer
+                </button>
+                <button class="nav-item" data-tab="allowlist">
+                    <span class="nav-icon">⚙️</span> Allowlist Policy
+                </button>
+            </nav>
+            <!-- Operator Credentials (RBAC View Access) -->
+            <div class="operator-container">
+                <label>Operator Identity</label>
+                <input type="text" id="sidebar-operator-id" placeholder="Operator ID" class="operator-input">
+                <input type="password" id="sidebar-operator-token" placeholder="Token" class="operator-input">
+                <button id="sidebar-auth-save" class="auth-save-btn">Apply Credentials</button>
+            </div>
+            <div class="sidebar-footer">
+                <span class="version-label">v1.0.0 (GA)</span>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-title">
+                    <h1 id="page-title">Overview</h1>
+                </div>
+                <div class="status-panel">
+                    <div class="status-indicator" id="status-dryrun">
+                        <span class="dot yellow"></span> DRY RUN: ACTIVE
+                    </div>
+                    <div class="status-indicator" id="status-killswitch">
+                        <span class="dot green"></span> KILL SWITCH: OFF
+                    </div>
+                    <div class="status-indicator" id="status-integrity">
+                        <span class="dot green"></span> LOG INTEGRITY: VERIFIED
+                    </div>
+                </div>
+            </header>
+
+            <!-- TABS -->
+            <div class="tab-content active" id="tab-overview">
+                <!-- KPI Section -->
+                <section class="kpi-grid">
+                    <div class="kpi-card">
+                        <h3>Total Findings Ingested</h3>
+                        <div class="value" id="kpi-findings">0</div>
+                    </div>
+                    <div class="kpi-card highlight">
+                        <h3>Pending Approvals</h3>
+                        <div class="value text-warning" id="kpi-pending">0</div>
+                    </div>
+                    <div class="kpi-card">
+                        <h3>Autonomous Actions</h3>
+                        <div class="value text-success" id="kpi-autonomous">0</div>
+                    </div>
+                    <div class="kpi-card">
+                        <h3>Human Overseen Actions</h3>
+                        <div class="value text-info" id="kpi-human">0</div>
+                    </div>
+                </section>
+
+                <div class="dashboard-details">
+                    <!-- Recent Timeline -->
+                    <div class="panel flex-1">
+                        <h2>Active Detections & System Status</h2>
+                        <div class="empty-state" id="overview-empty-state">
+                            No security incidents logged. Simulate traffic or run a telemetry replay.
+                        </div>
+                        <div class="timeline" id="overview-timeline"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- APPROVAL QUEUE -->
+            <div class="tab-content" id="tab-queue">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>Human-in-the-Loop Approval Queue</h2>
+                        <span class="badge" id="queue-pending-count">0 Pending</span>
+                    </div>
+                    <div class="empty-state" id="queue-empty-state">
+                        🎉 All caught up! No pending containment actions require human approval.
+                    </div>
+                    <div class="request-list" id="queue-list"></div>
+                </div>
+            </div>
+
+            <!-- AUDIT EXPLORER -->
+            <div class="tab-content" id="tab-audit">
+                <div class="panel">
+                    <div class="panel-header search-header">
+                        <h2>Append-Only Cryptographic Audit Log</h2>
+                        <div class="search-box">
+                            <input type="text" id="audit-search" placeholder="Filter by Finding ID or Stage...">
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="audit-table">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>Finding ID</th>
+                                    <th>Pipeline Stage</th>
+                                    <th>Record Details</th>
+                                </tr>
+                            </thead>
+                            <tbody id="audit-table-body">
+                                <tr>
+                                    <td colspan="4" class="text-center">No audit records found.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ALLOWLIST POLICY -->
+            <div class="tab-content" id="tab-allowlist">
+                <div class="allowlist-layout">
+                    <div class="panel flex-1">
+                        <h2>Active Autonomous Allowlist</h2>
+                        <p class="description">
+                            Containment action classes listed below will execute **autonomously** when triggered by matching threats. All other actions halt for operator sign-off.
+                        </p>
+                        <div class="table-container">
+                            <table class="allowlist-table">
+                                <thead>
+                                    <tr>
+                                        <th>Action Class</th>
+                                        <th>Target Domain</th>
+                                        <th>Blast Radius</th>
+                                        <th>Reversible</th>
+                                        <th>Governance</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="allowlist-table-body">
+                                    <tr>
+                                        <td colspan="5" class="text-center">No allowlist entries configured.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="panel width-350">
+                        <h2>Promote Action Class</h2>
+                        <p class="description">
+                            Add a containment capability to the autonomous allowlist (requires `PROMOTE` permission).
+                        </p>
+                        <form id="promote-form" class="standard-form">
+                            <div class="form-group">
+                                <label for="promote-class">Action Class</label>
+                                <select id="promote-class" required>
+                                    <option value="" disabled selected>Select an action class...</option>
+                                    <!-- AWS -->
+                                    <option value="disable_access_key">disable_access_key (AWS)</option>
+                                    <option value="attach_deny_all_to_principal">attach_deny_all_to_principal (AWS)</option>
+                                    <option value="isolate_instance_sg">isolate_instance_sg (AWS)</option>
+                                    <option value="terminate_instance">terminate_instance (AWS)</option>
+                                    <option value="block_ip">block_ip (AWS)</option>
+                                    <option value="revoke_role_sessions">revoke_role_sessions (AWS)</option>
+                                    <!-- K8s -->
+                                    <option value="isolate_pod">isolate_pod (Kubernetes)</option>
+                                    <option value="cordon_node">cordon_node (Kubernetes)</option>
+                                    <option value="delete_pod">delete_pod (Kubernetes)</option>
+                                    <option value="scale_deployment_zero">scale_deployment_zero (Kubernetes)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="promote-reason">Justification</label>
+                                <textarea id="promote-reason" placeholder="Provide regulatory or operational rationale..." required></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-block">Add to Allowlist</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAL FOR OPERATOR CREDENTIALS / JUSTIFICATION -->
+    <div class="modal-overlay" id="auth-modal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="modal-action-title">Authorize Action</h3>
+                <button class="close-btn" id="modal-close-btn">&times;</button>
+            </div>
+            <form id="auth-form" class="standard-form">
+                <input type="hidden" id="modal-target-id">
+                <input type="hidden" id="modal-action-type"> <!-- "approve" | "deny" | "promote" | "demote" -->
+                <input type="hidden" id="modal-action-class"> <!-- optional -->
+
+                <div class="form-group">
+                    <label for="auth-operator-id">Operator ID</label>
+                    <input type="text" id="auth-operator-id" placeholder="Username or email..." required>
+                </div>
+                <div class="form-group">
+                    <label for="auth-token">Security Token / Password</label>
+                    <input type="password" id="auth-token" placeholder="OIDC JWT or local password token..." required>
+                </div>
+                <div class="form-group" id="modal-reason-group">
+                    <label for="auth-reason">Operator Justification</label>
+                    <textarea id="auth-reason" placeholder="Provide details for the audit log..." required></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="modal-submit-btn">Submit Decision</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

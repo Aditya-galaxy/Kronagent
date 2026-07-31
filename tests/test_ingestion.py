@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 
 from kronagent.ingestion import FileReplaySource, QueuedFinding, SqsFindingSource
 from kronagent.model import Finding
 from kronagent.providers.aws import normalize_guardduty
-from kronagent.providers.k8s import normalize_k8s
 
 MINIMAL_FINDING = {
     "Id": "f-1", "Type": "UnauthorizedAccess:IAMUser/X", "Severity": 8.0,
