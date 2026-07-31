@@ -81,7 +81,7 @@ jobs:
           cache: pip
       - run: |
           python -m pip install --upgrade pip
-          pip install ".[all,dev]"
+          pip install ".[all,dev,test-aws]"
       - name: Test, and fail if the AWS paths silently skipped
         run: |
           pytest -q -rs | tee /tmp/out
