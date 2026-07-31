@@ -131,6 +131,11 @@ class ProposedAction(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     provider: str                  # which containment adapter owns this action
+    # Whose account this action runs against. Stamped centrally by
+    # providers.plan_actions from the finding, never set by a planner and never
+    # by a model — executing one tenant's containment with another tenant's
+    # credentials is the worst failure this system could have.
+    tenant_id: str = "default"
     action_class: ActionClass
     target: str                    # the concrete resource id / arn / ip / pod
     rationale: str
