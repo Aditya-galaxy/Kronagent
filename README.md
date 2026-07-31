@@ -40,8 +40,7 @@ hard part. Kronagent's answer is **earn-trust, graduated autonomy**:
   Article 12 automatic logging and Article 14 human oversight).
 
 See [`agent-team-architecture.md`](agent-team-architecture.md) for the full
-design rationale, and [`research.md`](research.md) for the market/competitive
-analysis behind these choices.
+design rationale.
 
 ---
 
@@ -234,7 +233,6 @@ python3 -m pytest -q
 
 - [`docs/use-cases.md`](docs/use-cases.md) — three findings end to end: what responding by hand looks like, what Kronagent does, and where it stops and waits for you
 - [`agent-team-architecture.md`](agent-team-architecture.md) — why each agent is (or isn't) an LLM, and the safety envelope every agent operates inside
-- [`research.md`](research.md) — market landscape, competitive analysis, and the strategic thesis
 - [`deploy/README.md`](deploy/README.md) — IAM policy, EventBridge/SQS wiring for a real AWS deployment
 - [`testbed/README.md`](testbed/README.md) — local SQS emulation, and why moto over LocalStack
 - [`SECURITY.md`](SECURITY.md) — vulnerability reporting
