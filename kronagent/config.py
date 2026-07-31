@@ -124,6 +124,9 @@ class Settings:
     audit_log_path: str = "kronagent_audit.jsonl"
     approval_store_path: str = "kronagent_approvals.json"
     allowlist_store_path: str = "kronagent_allowlist.json"
+    # Tenant cloud connections. Holds External IDs, which are secrets — the
+    # store creates this 0600 and re-asserts it on every write.
+    connection_store_path: str = "kronagent_connections.json"
     # Operator registry for identity + RBAC. Empty (default) = unauthenticated
     # mode: approvals/promotions use free-text --by and are audited as
     # identity_verified=false. Point this at a registry (see operators.py /
@@ -206,6 +209,7 @@ class Settings:
             audit_log_path=os.getenv("KRONAGENT_AUDIT_PATH", "kronagent_audit.jsonl"),
             approval_store_path=approval_path,
             allowlist_store_path=os.getenv("KRONAGENT_ALLOWLIST_PATH", "kronagent_allowlist.json"),
+            connection_store_path=os.getenv("KRONAGENT_CONNECTION_PATH", "kronagent_connections.json"),
             operator_registry_path=os.getenv("KRONAGENT_OPERATOR_REGISTRY", ""),
             db_path=db_path,
             max_workers=int(os.getenv("KRONAGENT_MAX_WORKERS", "1")),
