@@ -1,4 +1,9 @@
-# syntax=docker/dockerfile:1
+# No `# syntax=` directive on purpose. It makes BuildKit fetch the
+# docker/dockerfile frontend from Docker Hub before parsing this file — a third
+# rate-limited round-trip on a runner that shares its IP with every other
+# GitHub Actions job. Nothing here needs a newer frontend than the daemon's
+# built-in one: no RUN --mount, no COPY --link, no heredocs. Add the directive
+# back only alongside a feature that actually requires it.
 # ─────────────────────────────────────────────────────────────────────────────
 # Kronagent container image.
 #
