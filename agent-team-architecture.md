@@ -1,8 +1,8 @@
 # Kronagent — From Pipeline to Agent Team: Architecture Research
 
-*Compiled 2026-07-18. Grounded in live research (2026 industry + academic sources,
-cited). Companion to `research.md` (market/strategy); this doc is the technical
-architecture for "a security team of AI agents."*
+*Compiled 2026-07-18. Grounded in live research (2026 industry + academic
+sources, cited). This doc is the technical architecture for "a security team of
+AI agents."*
 
 ---
 
