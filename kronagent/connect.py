@@ -531,3 +531,189 @@ def kronagent_account_id() -> str:
     if value and not _ACCOUNT_RE.match(value):
         raise ValueError(f"KRONAGENT_AWS_ACCOUNT_ID must be 12 digits, got {value!r}")
     return value
+
+
+# --------------------------------------------------------------------------- #
+# Persistence
+# --------------------------------------------------------------------------- #
+
+class ConnectionStore:
+    """Connections on disk, one JSON document keyed by tenant.
+
+    Same atomic-replace pattern as AllowlistStore and ApprovalStore, and the
+    same read-on-demand behaviour, so a separate process (the connect API, an
+    operator CLI) can add a connection and a running orchestrator observes it
+    without a restart.
+
+    One difference from the other stores, and it is the reason this class has
+    its own file handling rather than reusing theirs: **this file contains
+    secrets.** An External ID is the credential that lets Kronagent assume a
+    customer's role. Leaked, together with a role ARN — which is not secret and
+    appears in the customer's own CloudTrail — it is enough for a third party to
+    ask AWS for that customer's role. So the file is created 0600 and the mode
+    is re-asserted on every write, because os.replace() takes the permissions of
+    the temp file, not of the file it replaces.
+    """
+
+    def __init__(self, path: str) -> None:
+        self._path = path
+        self._lock = threading.Lock()
+
+    # --- persistence ---
+
+    def _read_all(self) -> dict[str, dict]:
+        if not os.path.exists(self._path):
+            return {}
+        try:
+            with open(self._path, encoding="utf-8") as fh:
+                return json.load(fh)
+        except json.JSONDecodeError:
+            # Unlike an allowlist, an unreadable connection file is not
+            # something to shrug at: it means we cannot prove which account we
+            # are entitled to touch. Fail loudly rather than silently behaving
+            # as though no customer had ever connected.
+            raise RuntimeError(
+                f"connection store at {self._path} is corrupt — refusing to "
+                "continue with an unknown set of tenant grants"
+            ) from None
+
+    def _write_all(self, data: dict[str, dict]) -> None:
+        import tempfile
+
+        directory = os.path.dirname(os.path.abspath(self._path)) or "."
+        fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
+        try:
+            os.chmod(tmp, 0o600)          # before any secret is written into it
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2, sort_keys=True)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, self._path)
+            # os.replace inherits the temp file's mode, but assert it anyway:
+            # a store that silently became world-readable is exactly the failure
+            # nobody notices.
+            os.chmod(self._path, 0o600)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+
+    # --- serialisation ---
+
+    @staticmethod
+    def _to_dict(conn: AwsConnection) -> dict:
+        return {
+            "tenant_id": conn.tenant_id,
+            "account_id": conn.account_id,
+            "region": conn.region,
+            "external_id": conn.external_id,
+            "observe_role_arn": conn.observe_role_arn,
+            "contain_role_arn": conn.contain_role_arn,
+            "state": conn.state.value,
+            "missing_permissions": list(conn.missing_permissions),
+            "last_verified": conn.last_verified.isoformat() if conn.last_verified else None,
+        }
+
+    @staticmethod
+    def _from_dict(raw: dict) -> AwsConnection:
+        verified = raw.get("last_verified")
+        return AwsConnection(
+            tenant_id=raw["tenant_id"],
+            account_id=raw["account_id"],
+            region=raw["region"],
+            external_id=raw["external_id"],
+            observe_role_arn=raw.get("observe_role_arn", ""),
+            contain_role_arn=raw.get("contain_role_arn", ""),
+            state=ConnectionState(raw.get("state", ConnectionState.PENDING.value)),
+            missing_permissions=tuple(raw.get("missing_permissions", ())),
+            last_verified=datetime.fromisoformat(verified) if verified else None,
+        )
+
+    # --- read path ---
+
+    def get(self, tenant_id: str) -> Optional[AwsConnection]:
+        raw = self._read_all().get(tenant_id)
+        return self._from_dict(raw) if raw else None
+
+    def list(self) -> list[AwsConnection]:
+        return sorted(
+            (self._from_dict(v) for v in self._read_all().values()),
+            key=lambda c: c.tenant_id,
+        )
+
+    def credentials_resolver(self, broker: "CredentialBroker", grant: Grant):
+        """A `credentials_for(tenant_id)` callable for the containment adapters.
+
+        Returns None for a tenant with no connection or no containment grant,
+        which the adapter reads as "use ambient credentials". That is correct
+        for the single-tenant install and for local development — and it is why
+        the caller must still check `can_contain` before *planning* containment,
+        rather than relying on credential resolution to refuse.
+        """
+        def resolve(tenant_id: str) -> Optional[dict]:
+            conn = self.get(tenant_id)
+            if conn is None:
+                return None
+            if grant is Grant.CONTAIN and not conn.can_contain:
+                return None
+            return broker.credentials(conn, grant)
+
+        return resolve
+
+    # --- write path ---
+
+    def put(self, conn: AwsConnection) -> AwsConnection:
+        with self._lock:
+            data = self._read_all()
+            data[conn.tenant_id] = self._to_dict(conn)
+            self._write_all(data)
+        return conn
+
+    def create(self, *, tenant_id: str, account_id: str, region: str) -> AwsConnection:
+        """Begin a connection: mint an External ID and record it as pending.
+
+        Refuses to overwrite an existing tenant. Re-minting an External ID would
+        silently invalidate the trust policy the customer already installed, and
+        the only symptom would be containment failing during an incident.
+        """
+        with self._lock:
+            if tenant_id in self._read_all():
+                raise ValueError(
+                    f"tenant {tenant_id!r} is already connected — rotating the "
+                    "External ID requires deleting the connection and having "
+                    "the customer reinstall the stack"
+                )
+        return self.put(AwsConnection(
+            tenant_id=tenant_id, account_id=account_id, region=region,
+            external_id=new_external_id(),
+        ))
+
+    def record_role(self, tenant_id: str, grant: Grant, role_arn: str) -> AwsConnection:
+        """Attach a role ARN once the customer's stack has produced one."""
+        conn = self.get(tenant_id)
+        if conn is None:
+            raise KeyError(f"no connection for tenant {tenant_id!r}")
+        field_name = "observe_role_arn" if grant is Grant.OBSERVE else "contain_role_arn"
+        from dataclasses import replace
+        return self.put(replace(conn, **{field_name: role_arn}))
+
+    def record_preflight(self, tenant_id: str, result: "PreflightResult") -> AwsConnection:
+        conn = self.get(tenant_id)
+        if conn is None:
+            raise KeyError(f"no connection for tenant {tenant_id!r}")
+        from dataclasses import replace
+        return self.put(replace(
+            conn,
+            state=result.as_state(),
+            missing_permissions=tuple(result.missing),
+            last_verified=datetime.now(timezone.utc),
+        ))
+
+    def delete(self, tenant_id: str) -> bool:
+        """Forget a tenant. The customer should also delete their stack — this
+        only stops us from trying."""
+        with self._lock:
+            data = self._read_all()
+            existed = data.pop(tenant_id, None) is not None
+            if existed:
+                self._write_all(data)
+        return existed
