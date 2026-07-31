@@ -99,8 +99,16 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: pip install ruff
+      - run: pip install ruff import-linter
       - run: ruff check .
+
+      - name: Architecture contracts
+        # Kronagent's central claim is that a model can influence whether
+        # containment proceeds but never what it targets. The behavioural tests
+        # check that; these contracts stop the *shape* of the code drifting
+        # away from it — an agent module gaining an import of the containment
+        # executor would pass every existing test.
+        run: lint-imports
 
   build:
     name: container image
