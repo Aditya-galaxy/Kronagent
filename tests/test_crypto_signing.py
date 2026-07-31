@@ -5,8 +5,15 @@ Unit and integration tests for cryptographic signing of forensic custody chains.
 from __future__ import annotations
 
 import os
-import boto3
-from moto import mock_aws
+import pytest
+
+# These exercise the real AWS containment path against moto, so they need the
+# AWS SDK. The core install deliberately ships without it — skip rather than
+# fail collection, so `pip install kronagent && pytest` stays green for someone
+# who never intends to touch AWS. CI runs a separate job with [all,dev] where
+# these do execute.
+boto3 = pytest.importorskip("boto3")
+mock_aws = pytest.importorskip("moto").mock_aws
 
 from kronagent.crypto import LocalAsymmetricSigner, KmsSigner, get_signer
 from kronagent.config import Settings
