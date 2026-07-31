@@ -18,7 +18,7 @@ in these tables; nothing else changes.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Optional
 
 from ..config import Settings
 from ..model import Finding
@@ -44,14 +44,26 @@ PLANNERS: dict[str, Callable[[Finding], list[ProposedAction]]] = {
 }
 
 
-def build_containment_adapters(settings: Settings) -> dict[str, object]:
+def build_containment_adapters(
+    settings: Settings,
+    *,
+    aws_credentials_for: Optional[Callable[[str], Optional[dict]]] = None,
+) -> dict[str, object]:
     """Construct one containment adapter per provider. Adapters are lazy about
-    their cloud/cluster clients, so this is cheap and credential-free."""
+    their cloud/cluster clients, so this is cheap and credential-free.
+
+    aws_credentials_for: resolves a tenant id to that tenant's assumed-role
+        credentials. Omitted, AWS containment uses the process's own ambient
+        credentials — correct for local development and a single-tenant install.
+        Supplied, every AWS action runs inside the customer's account under a
+        role they granted and can revoke. See kronagent.connect.
+    """
     return {
         aws.PROVIDER: aws.AwsContainmentAdapter(
             region=settings.aws_region,
             quarantine_security_group_id=settings.quarantine_security_group_id,
             quarantine_nacl_id=settings.quarantine_nacl_id,
+            credentials_for=aws_credentials_for,
         ),
         azure.PROVIDER: azure.AzureContainmentAdapter(
             subscription_id=settings.azure_subscription_id,
@@ -73,4 +85,9 @@ def plan_actions(finding: Finding) -> list[ProposedAction]:
     planner = PLANNERS.get(finding.provider)
     if planner is None:
         return []
-    return planner(finding)
+    # Stamp the tenant here rather than in each planner. There are 22 places
+    # actions get constructed across five providers; requiring every one of
+    # them to remember would guarantee that one eventually does not, and the
+    # failure mode is containment running against the wrong customer account.
+    return [a.model_copy(update={"tenant_id": finding.tenant_id})
+            for a in planner(finding)]
