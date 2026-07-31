@@ -427,3 +427,128 @@ def test_preflight_result_state_mapping() -> None:
     assert PreflightResult(ok=False).as_state() is ConnectionState.FAILED
     assert PreflightResult(ok=True).as_state() is ConnectionState.HEALTHY
     assert PreflightResult(ok=True, missing=["x"]).as_state() is ConnectionState.DEGRADED
+
+
+# --------------------------------------------------------------------------- #
+# Tenant isolation in the containment adapter
+#
+# The connection model in this module is only worth anything if containment
+# actually uses it. These assert the wiring: an action carries a tenant, the
+# adapter resolves credentials for exactly that tenant, and two tenants never
+# share a client.
+# --------------------------------------------------------------------------- #
+
+@requires_boto3
+def test_action_runs_with_its_own_tenants_credentials(monkeypatch) -> None:
+    from kronagent.providers.aws import AwsContainmentAdapter
+    from kronagent.schemas import ActionClass, ProposedAction
+
+    creds = {
+        "acme":  {"aws_access_key_id": "ACME", "aws_secret_access_key": "s", "aws_session_token": "t"},
+        "globex": {"aws_access_key_id": "GLOBEX", "aws_secret_access_key": "s", "aws_session_token": "t"},
+    }
+    seen: list[tuple[str, str]] = []
+
+    import boto3
+
+    def fake_client(service, region_name=None, **kw):
+        seen.append((service, kw.get("aws_access_key_id", "AMBIENT")))
+        return MagicMock()
+
+    monkeypatch.setattr(boto3, "client", fake_client)
+
+    adapter = AwsContainmentAdapter(region="us-east-1",
+                                    credentials_for=lambda t: creds.get(t))
+
+    for tenant in ("acme", "globex"):
+        adapter._perform_sync(ProposedAction(
+            provider="aws", tenant_id=tenant,
+            action_class=ActionClass.DISABLE_ACCESS_KEY,
+            target="AKIAEXAMPLE", rationale="test",
+            parameters={"user_name": "victim"},
+        ))
+
+    assert ("iam", "ACME") in seen
+    assert ("iam", "GLOBEX") in seen
+
+
+@requires_boto3
+def test_clients_are_never_shared_between_tenants(monkeypatch) -> None:
+    """A boto3 client carries its credentials. One shared client would silently
+    apply the first tenant's role to every tenant after it — containment
+    executing in the wrong customer's account, reported as success."""
+    from kronagent.providers.aws import AwsContainmentAdapter
+
+    import boto3
+    monkeypatch.setattr(boto3, "client", lambda *a, **k: MagicMock())
+
+    adapter = AwsContainmentAdapter(
+        region="us-east-1",
+        credentials_for=lambda t: {"aws_access_key_id": t.upper(),
+                                   "aws_secret_access_key": "s",
+                                   "aws_session_token": "t"},
+    )
+    a = adapter._iam_client("acme")
+    b = adapter._iam_client("globex")
+    again = adapter._iam_client("acme")
+
+    assert a is not b, "two tenants must not share a client"
+    assert a is again, "the same tenant should reuse its cached client"
+
+
+@requires_boto3
+def test_invalidate_forces_credential_refresh(monkeypatch) -> None:
+    """Assumed-role credentials expire. Without invalidation a cached client
+    keeps using the dead ones until it fails mid-containment."""
+    from kronagent.providers.aws import AwsContainmentAdapter
+
+    import boto3
+    monkeypatch.setattr(boto3, "client", lambda *a, **k: MagicMock())
+
+    adapter = AwsContainmentAdapter(region="us-east-1",
+                                    credentials_for=lambda t: None)
+    first = adapter._iam_client("acme")
+    adapter.invalidate("acme")
+    assert adapter._iam_client("acme") is not first
+
+
+@requires_boto3
+def test_without_a_resolver_the_adapter_uses_ambient_credentials(monkeypatch) -> None:
+    """Local development and single-tenant installs must keep working
+    unchanged — the resolver is additive, not required."""
+    from kronagent.providers.aws import AwsContainmentAdapter
+
+    captured: dict = {}
+    import boto3
+
+    def fake_client(service, region_name=None, **kw):
+        captured.update(kw)
+        return MagicMock()
+
+    monkeypatch.setattr(boto3, "client", fake_client)
+    AwsContainmentAdapter(region="us-east-1")._iam_client()
+    assert captured == {}, "no credentials should be passed when no resolver is set"
+
+
+def test_planner_stamps_the_findings_tenant_onto_every_action() -> None:
+    """22 places construct actions across five providers. Stamping centrally is
+    what stops a future provider from forgetting and inheriting 'default'."""
+    from kronagent.model import Finding, ResourceRef
+    from kronagent.providers import plan_actions
+
+    finding = Finding(
+        provider="aws", finding_id="f-1", finding_type="UnauthorizedAccess",
+        severity=8.0, tenant_id="acme",
+        resources=[ResourceRef(kind="aws.ec2.instance", id="i-0abc", attributes={})],
+        remote_ip="185.220.101.7",
+    )
+    actions = plan_actions(finding)
+    assert actions, "expected the AWS planner to propose something"
+    assert all(a.tenant_id == "acme" for a in actions), [a.tenant_id for a in actions]
+
+
+def test_actions_default_to_the_default_tenant() -> None:
+    from kronagent.schemas import ActionClass, ProposedAction
+    a = ProposedAction(provider="aws", action_class=ActionClass.BLOCK_IP,
+                       target="1.2.3.4", rationale="r")
+    assert a.tenant_id == "default"

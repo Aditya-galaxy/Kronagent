@@ -50,7 +50,10 @@ def test_aws_block_ip_success(mock_boto_client) -> None:
     }
 
     adapter = AwsContainmentAdapter(region="us-east-1", quarantine_nacl_id="nacl-123")
-    adapter._ec2 = mock_ec2
+    # Bind through the patched boto3.client rather than a private attribute:
+    # the adapter now caches clients per tenant, so there is no single _ec2 to
+    # reach into, and a test that knows the cache layout breaks whenever it moves.
+    mock_boto_client.return_value = mock_ec2
 
     action = ProposedAction(
         provider="aws",
@@ -90,7 +93,7 @@ def test_aws_block_ip_success(mock_boto_client) -> None:
 def test_aws_revoke_role_sessions_success(mock_boto_client) -> None:
     mock_iam = MagicMock()
     adapter = AwsContainmentAdapter(region="us-east-1")
-    adapter._iam = mock_iam
+    mock_boto_client.return_value = mock_iam
 
     action = ProposedAction(
         provider="aws",
