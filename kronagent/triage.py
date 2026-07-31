@@ -77,8 +77,8 @@ class TriageEngine:
         # normalized finding, not the model.
         candidates = plan_actions(finding)
 
-        from .sanitization import sanitize_finding
-        sanitized = sanitize_finding(finding)
+        from .sanitization import mask_finding
+        sanitized, mask_ctx = mask_finding(finding)
 
         resource_lines = "\n".join(
             f"  - {r.kind} {r.id}" + (f" ({r.attributes})" if r.attributes else "")
@@ -107,8 +107,10 @@ class TriageEngine:
                     threat_category=out.threat_category,
                     confidence=out.confidence,
                     severity=finding.severity,
-                    justification=out.justification,
-                    correlated_signals=out.correlated_signals,
+                    # Unmasked: the model reasoned over placeholders, but this
+                    # text lands in the incident record a human reads.
+                    justification=mask_ctx.unmask(out.justification),
+                    correlated_signals=[mask_ctx.unmask(s) for s in out.correlated_signals],
                 )
                 if self._signer is not None:
                     verdict = verdict.with_signature(self._signer)
