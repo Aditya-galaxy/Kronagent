@@ -105,6 +105,21 @@ class Settings:
     kubeconfig_path: str = ""
     kube_context: str = ""
 
+    # --- Azure ---
+    azure_subscription_id: str = ""
+    # Pre-provisioned deny-all NSG used to isolate a VM's NIC and to hold
+    # block_ip deny rules. Created once by ops; Kronagent references it by id
+    # and never creates one.
+    azure_quarantine_nsg_id: str = ""
+
+    # --- In-house / on-premises ---
+    # Base URL of the customer's containment control plane (NAC, automation
+    # runner, firewall API). Empty = on-prem containment can plan but not
+    # execute; perform() fails loudly rather than silently no-op'ing.
+    onprem_control_plane_url: str = ""
+    # VLAN a quarantined host is moved into. Pre-provisioned by ops.
+    onprem_quarantine_vlan: str = ""
+
     # --- Audit, approvals & governance ---
     audit_log_path: str = "kronagent_audit.jsonl"
     approval_store_path: str = "kronagent_approvals.json"
@@ -130,6 +145,13 @@ class Settings:
     # On by default; scope enforcement blocks any action aimed at a resource not
     # implicated by its own finding.
     trajectory_guard_enabled: bool = True
+    # Where a latched halt is persisted. A halt MUST outlive the process —
+    # an in-memory-only latch is released by any restart, including one caused
+    # by the incident that tripped it, which would turn the kill switch into a
+    # suggestion. This file is also the seam `halt.py` uses to clear a halt in
+    # a running deployment without a restart. Empty = in-memory only (the halt
+    # does not survive a restart and no CLI can clear it).
+    trajectory_state_path: str = "kronagent_trajectory_halt.json"
     trajectory_window_seconds: float = 60.0
     trajectory_max_auto_executions: int = 25
     trajectory_max_scope_violations: int = 3
@@ -177,6 +199,10 @@ class Settings:
             sqs_wait_seconds=int(os.getenv("KRONAGENT_SQS_WAIT_SECONDS", "20")),
             kubeconfig_path=os.getenv("KRONAGENT_KUBECONFIG", ""),
             kube_context=os.getenv("KRONAGENT_KUBE_CONTEXT", ""),
+            azure_subscription_id=os.getenv("KRONAGENT_AZURE_SUBSCRIPTION_ID", ""),
+            azure_quarantine_nsg_id=os.getenv("KRONAGENT_AZURE_QUARANTINE_NSG_ID", ""),
+            onprem_control_plane_url=os.getenv("KRONAGENT_ONPREM_CONTROL_PLANE_URL", ""),
+            onprem_quarantine_vlan=os.getenv("KRONAGENT_ONPREM_QUARANTINE_VLAN", ""),
             audit_log_path=os.getenv("KRONAGENT_AUDIT_PATH", "kronagent_audit.jsonl"),
             approval_store_path=approval_path,
             allowlist_store_path=os.getenv("KRONAGENT_ALLOWLIST_PATH", "kronagent_allowlist.json"),
@@ -187,6 +213,8 @@ class Settings:
             require_agent_signatures=_env_bool("KRONAGENT_REQUIRE_AGENT_SIGNATURES", False),
             require_view_auth=_env_bool("KRONAGENT_REQUIRE_VIEW_AUTH", False),
             trajectory_guard_enabled=_env_bool("KRONAGENT_TRAJECTORY_GUARD", True),
+            trajectory_state_path=os.getenv(
+                "KRONAGENT_TRAJECTORY_STATE_PATH", "kronagent_trajectory_halt.json"),
             trajectory_window_seconds=float(os.getenv("KRONAGENT_TRAJECTORY_WINDOW_SECONDS", "60")),
             trajectory_max_auto_executions=int(os.getenv("KRONAGENT_TRAJECTORY_MAX_AUTO", "25")),
             trajectory_max_scope_violations=int(os.getenv("KRONAGENT_TRAJECTORY_MAX_SCOPE_VIOLATIONS", "3")),

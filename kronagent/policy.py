@@ -121,6 +121,59 @@ _ACTION_PROPERTIES: dict[ActionClass, dict] = {
         "blast_radius": BlastRadius.SINGLE_RESOURCE,
         "destructive": False,
     },
+
+    # --- Azure ---
+    ActionClass.ISOLATE_VM_NSG: {
+        # Preferred Azure containment: the VM keeps running (preserving volatile
+        # memory for forensics) but cannot talk to anything. Restore the NIC's
+        # original NSG to roll back.
+        "reversible": True,
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": False,
+    },
+    ActionClass.DEALLOCATE_VM: {
+        # Reversible (start it again) but it takes a running workload offline
+        # and discards volatile state -> destructive, so it is approval-gated
+        # regardless of the allowlist. Classified the same way as
+        # SCALE_DEPLOYMENT_ZERO, which has the same "workload goes down" shape.
+        "reversible": True,
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": True,
+    },
+    ActionClass.DISABLE_ENTRA_PRINCIPAL: {
+        "reversible": True,   # re-enable the principal
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": False,
+    },
+    ActionClass.REVOKE_ENTRA_SESSIONS: {
+        # Same reasoning as REVOKE_ROLE_SESSIONS: new sessions can be issued,
+        # but this forcibly kills in-flight legitimate sessions too.
+        "reversible": True,
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": True,
+    },
+
+    # --- In-house / on-premises ---
+    ActionClass.ISOLATE_HOST_NETWORK: {
+        # The on-prem analogue of ISOLATE_INSTANCE_SG: move the host to a
+        # quarantine VLAN / deny-all NAC policy. The box stays powered on for
+        # forensics; restoring its original VLAN rolls it back.
+        "reversible": True,
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": False,
+    },
+    ActionClass.DISABLE_LOCAL_ACCOUNT: {
+        "reversible": True,   # re-enable the account
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": False,
+    },
+    ActionClass.KILL_PROCESS: {
+        # Irreversible in any meaningful sense — the process and its in-memory
+        # state are gone, which can also destroy evidence. Never auto-executes.
+        "reversible": False,
+        "blast_radius": BlastRadius.SINGLE_RESOURCE,
+        "destructive": True,
+    },
 }
 
 

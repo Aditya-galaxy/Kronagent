@@ -96,7 +96,7 @@ def test_authenticate_disabled_operator_is_rejected(tmp_path) -> None:
 
 
 def test_raw_token_is_never_stored(tmp_path) -> None:
-    reg = _registry(tmp_path, alice=(["admin"], "supersecret"))
+    _registry(tmp_path, alice=(["admin"], "supersecret"))
     raw = (tmp_path / "ops.json").read_text()
     assert "supersecret" not in raw
     assert hash_token("supersecret") in raw

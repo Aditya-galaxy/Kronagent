@@ -5,11 +5,8 @@ Unit tests for the EU AI Act compliance report exporter.
 from __future__ import annotations
 
 import json
-import os
-from unittest.mock import MagicMock
-import pytest
 
-from kronagent.audit import AuditLog, _canonical, _hash_entry
+from kronagent.audit import AuditLog
 from kronagent.compliance import ComplianceExporter
 from kronagent.schemas import AuditRecord
 

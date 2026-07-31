@@ -5,7 +5,6 @@ Tests for drift simulation engine and synthetic monitoring validations.
 from __future__ import annotations
 
 import asyncio
-import os
 import pytest
 
 from kronagent.audit import AuditLog

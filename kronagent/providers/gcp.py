@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from ..model import Finding, ResourceRef
 from ..schemas import ActionClass, ProposedAction
@@ -132,7 +132,7 @@ def normalize_gcp_scc(payload: dict) -> Finding:
         description=detail.description or f"GCP Security Command Center alert for resource {res_name}",
         remote_ip=remote_ip,
         resources=resources,
-        raw_payload=payload
+        raw=payload,  # field is `raw` — `raw_payload` was silently dropped, losing the SCC payload for audit
     )
 
 
@@ -145,12 +145,17 @@ def plan_gcp_actions(finding: Finding) -> list[ProposedAction]:
 
     for res in finding.resources:
         if res.kind == "gcp.service_account_key":
-            sa = res.attributes.get("service_account", "")
-            target_str = f"{res.id} ({sa})" if sa else res.id
+            # target MUST be the bare resource id. A decorated string like
+            # "key-id (sa@project)" is not a member of the finding's resource
+            # set, so the trajectory guard correctly rejects it as an
+            # out-of-scope redirection — which silently broke this containment
+            # path. Context belongs in parameters, exactly as AWS carries
+            # user_name for DISABLE_ACCESS_KEY.
             actions.append(ProposedAction(
                 action_class=ActionClass.DISABLE_SERVICE_ACCOUNT_KEY,
-                target=target_str,
+                target=res.id,
                 provider=PROVIDER,
+                parameters={"service_account": res.attributes.get("service_account", "")},
                 rationale=f"Disable compromised GCP service account key '{res.id}' implicated in {finding.finding_type}."
             ))
 

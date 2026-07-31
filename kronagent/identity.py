@@ -297,7 +297,7 @@ class OidcIdentityProvider:
                     "OIDC signature verification is enabled, but 'pyjwt' or 'cryptography' "
                     "is not installed. Install them or set KRONAGENT_OIDC_VERIFY_SIGNATURE=false."
                 )
-            except Exception as e:
+            except Exception:
                 # Verification failed
                 return None
 

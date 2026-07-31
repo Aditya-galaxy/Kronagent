@@ -16,7 +16,6 @@ import hashlib
 import json
 import urllib.request
 from typing import Any, Optional
-from urllib.error import URLError
 
 from .config import Settings
 from .approvals import ApprovalRequest

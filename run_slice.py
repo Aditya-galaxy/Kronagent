@@ -95,13 +95,18 @@ async def main(replay: list[tuple[str, str]]) -> int:
     approvals = ApprovalStore(settings.approval_store_path)
     trajectory = None
     if settings.trajectory_guard_enabled:
-        from kronagent.trajectory import TrajectoryConfig, TrajectoryGuard
-        trajectory = TrajectoryGuard(TrajectoryConfig(
-            window_seconds=settings.trajectory_window_seconds,
-            max_auto_executions=settings.trajectory_max_auto_executions,
-            max_scope_violations=settings.trajectory_max_scope_violations,
-            enforce_scope=settings.trajectory_enforce_scope,
-        ))
+        from kronagent.trajectory import TrajectoryConfig, TrajectoryGuard, TrajectoryStateStore
+        halt_store = (TrajectoryStateStore(settings.trajectory_state_path)
+                      if settings.trajectory_state_path else None)
+        trajectory = TrajectoryGuard(
+            TrajectoryConfig(
+                window_seconds=settings.trajectory_window_seconds,
+                max_auto_executions=settings.trajectory_max_auto_executions,
+                max_scope_violations=settings.trajectory_max_scope_violations,
+                enforce_scope=settings.trajectory_enforce_scope,
+            ),
+            store=halt_store,
+        )
     orchestrator = Orchestrator(
         settings, triage=triage, policy=policy, containment=containment,
         audit=audit, approvals=approvals, threat_intel=threat_intel,
@@ -121,6 +126,15 @@ async def main(replay: list[tuple[str, str]]) -> int:
                      f"max_auto={settings.trajectory_max_auto_executions}/"
                      f"{settings.trajectory_window_seconds:.0f}s, "
                      f"max_scope_violations={settings.trajectory_max_scope_violations}")
+        # A halt survives restarts by design. Say so loudly at boot — otherwise
+        # an operator restarts, sees a normal-looking startup, and cannot work
+        # out why nothing is being contained.
+        if trajectory.halted:
+            _log("BOOT", "trajectory guard: ⛔ HALTED FROM A PREVIOUS SESSION — "
+                         "ALL containment is blocked")
+            _log("BOOT", f"trajectory guard: reason: {trajectory.halt_reason}")
+            _log("BOOT", "trajectory guard: inspect with `python3 halt.py status`, "
+                         "release with `python3 halt.py clear --by <you> --reason \"<...>\"`")
     else:
         _log("BOOT", "trajectory guard: DISABLED")
 
@@ -140,12 +154,10 @@ async def main(replay: list[tuple[str, str]]) -> int:
             wait_seconds=settings.sqs_wait_seconds, endpoint_url=settings.sqs_endpoint_url,
         )
         producer = asyncio.create_task(source.stream(queue, stop))
-        live = True
     else:
         _log("BOOT", f"ingestion: file replay {[p for _, p in replay]} "
                      f"(providers: {sorted({pr for pr, _ in replay})})")
         producer = asyncio.create_task(_replay_files(replay, queue, stop))
-        live = False
 
     consumer = asyncio.create_task(orchestrator.run(queue, ingestion_done))
 
@@ -176,6 +188,25 @@ async def main(replay: list[tuple[str, str]]) -> int:
     _log("BOOT", f"=== stopped. findings processed: {orchestrator.processed} ===")
     return 0
 
+
+def cli() -> int:
+    """Console-script entry point. Mirrors the __main__ block below so
+    `kronagent-slice` and `python3 run_slice.py` behave identically."""
+    if len(sys.argv) >= 3:
+        prov = sys.argv[1]
+        if prov not in NORMALIZERS:
+            _log("BOOT", f"unknown provider '{prov}'. Known: {sorted(NORMALIZERS)}")
+            return 2
+        replay = [(prov, sys.argv[2])]
+    elif len(sys.argv) == 2:
+        replay = [("aws", sys.argv[1])]
+    else:
+        replay = _DEFAULT_REPLAY
+    try:
+        return asyncio.run(main(replay))
+    except KeyboardInterrupt:
+        _log("BOOT", "interrupted.")
+        return 130
 
 if __name__ == "__main__":
     # Usage:

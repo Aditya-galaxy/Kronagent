@@ -12,7 +12,6 @@ No network / no real LLM: a fake client returns scripted structured output.
 
 from __future__ import annotations
 
-import pytest
 
 from kronagent.intel import (
     MitreTechnique,

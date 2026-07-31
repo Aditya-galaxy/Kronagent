@@ -8,11 +8,15 @@ Drift simulation engine to continuously test and validate the health of the Kron
 
 from __future__ import annotations
 
+import logging
+
 import json
 import os
 
 from .model import Finding
 
+
+_log = logging.getLogger("kronagent.simulation")
 
 class DriftSimulationEngine:
     """Generates synthetic benign threat alerts and validates the audit log trail
@@ -48,7 +52,11 @@ class DriftSimulationEngine:
                     record = envelope.get("record", {})
                     if record.get("finding_id") == finding_id:
                         stages.add(record.get("stage"))
-                except Exception:
+                except json.JSONDecodeError:
+                    # A malformed line in the audit log is itself worth
+                    # knowing about — the log is hash-chained, so corruption
+                    # here is a signal, not noise.
+                    _log.warning("skipping malformed audit line in %s", audit_log_path)
                     continue
 
         # A functional pipeline must at least complete the triage stage audit record

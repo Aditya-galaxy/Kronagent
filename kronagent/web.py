@@ -13,9 +13,8 @@ from __future__ import annotations
 
 import os
 import json
-import asyncio
-from typing import Literal, Optional, Any
-from pydantic import BaseModel, Field
+from typing import Literal, Any
+from pydantic import BaseModel
 
 from fastapi import FastAPI, HTTPException, status, Request
 from fastapi.responses import HTMLResponse

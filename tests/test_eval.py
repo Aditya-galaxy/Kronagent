@@ -4,7 +4,6 @@ Integration tests for the measured evaluation harness.
 
 from __future__ import annotations
 
-import pytest
 import subprocess
 import sys
 

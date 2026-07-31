@@ -22,7 +22,6 @@ import os
 import random
 import sys
 import tempfile
-from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -36,11 +35,10 @@ from kronagent.correlation import CorrelationAgent
 from kronagent.forensics import ForensicsAgent
 from kronagent.ingestion import QueuedFinding
 from kronagent.intel import ThreatIntelAgent
-from kronagent.model import Finding
 from kronagent.orchestrator import Orchestrator
 from kronagent.policy import PolicyEngine
 from kronagent.providers import NORMALIZERS, build_containment_adapters
-from kronagent.schemas import AuditRecord, ActionClass
+from kronagent.schemas import AuditRecord
 from kronagent.triage import TriageEngine
 
 
@@ -68,7 +66,7 @@ def bootstrap_f1_interval(actual_verdicts: list[bool], expected_labels: list[boo
     if n == 0:
         return 0.0, 0.0
     
-    data = list(zip(actual_verdicts, expected_labels))
+    data = list(zip(actual_verdicts, expected_labels, strict=True))
     f1_scores = []
     
     for _ in range(n_iterations):
@@ -354,10 +352,10 @@ async def evaluate_pipeline(dataset_path: str, use_live: bool, allowlist_classes
     
     # Compute metrics
     total_cases = len(dataset)
-    tp = sum(1 for a, e in zip(triage_actual_verdicts, triage_expected_labels) if a and e)
-    fp = sum(1 for a, e in zip(triage_actual_verdicts, triage_expected_labels) if a and not e)
-    tn = sum(1 for a, e in zip(triage_actual_verdicts, triage_expected_labels) if not a and not e)
-    fn = sum(1 for a, e in zip(triage_actual_verdicts, triage_expected_labels) if not a and e)
+    tp = sum(1 for a, e in zip(triage_actual_verdicts, triage_expected_labels, strict=True) if a and e)
+    fp = sum(1 for a, e in zip(triage_actual_verdicts, triage_expected_labels, strict=True) if a and not e)
+    tn = sum(1 for a, e in zip(triage_actual_verdicts, triage_expected_labels, strict=True) if not a and not e)
+    fn = sum(1 for a, e in zip(triage_actual_verdicts, triage_expected_labels, strict=True) if not a and e)
     
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
@@ -404,6 +402,25 @@ async def evaluate_pipeline(dataset_path: str, use_live: bool, allowlist_classes
 # --------------------------------------------------------------------------- #
 # CLI Entrypoint
 # --------------------------------------------------------------------------- #
+
+
+def cli() -> int:
+    """Console-script entry point for `kronagent-eval`."""
+    parser = argparse.ArgumentParser(description="Kronagent Measured Evaluation Harness.")
+    parser.add_argument("--dataset", type=str, default="samples/eval_dataset.json",
+                        help="Path to evaluation dataset JSON.")
+    parser.add_argument("--live", action="store_true",
+                        help="Run live calls against the Gemini API instead of mock labels.")
+    parser.add_argument("--allowlist", type=str,
+                        default="disable_access_key,block_ip,isolate_pod,isolate_instance_sg",
+                        help="Comma-separated action classes to seed in the auto-execute allowlist.")
+    args = parser.parse_args()
+    allowlist_classes = [c.strip() for c in args.allowlist.split(",") if c.strip()]
+    try:
+        return asyncio.run(evaluate_pipeline(args.dataset, args.live, allowlist_classes))
+    except KeyboardInterrupt:
+        print("\nEvaluation interrupted by user.")
+        return 130
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Kronagent Measured Evaluation Harness.")

@@ -9,7 +9,6 @@ import sys
 import random
 import string
 import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
 from kronagent.providers.aws import AwsContainmentAdapter
 from kronagent.schemas import ProposedAction, ActionClass
 
@@ -222,6 +221,14 @@ async def main():
             ec2 = boto3.client("ec2", region_name=region)
             ec2.create_vpc(CidrBlock="10.0.0.0/16")
             await run_drill(region, mock_mode=True)
+
+
+def cli() -> int:
+    """Console-script entry point for `kronagent-cloud-drill`."""
+    try:
+        return asyncio.run(main()) or 0
+    except KeyboardInterrupt:
+        return 130
 
 if __name__ == "__main__":
     asyncio.run(main())

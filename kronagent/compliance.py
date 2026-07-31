@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 from .audit import AuditLog
 
@@ -205,8 +205,8 @@ class ComplianceExporter:
         summary = report["compliance_summary"]
         md.append("## 2. Platform Summary Metrics")
         md.append("")
-        md.append(f"| Metric | Count |")
-        md.append(f"| :--- | :--- |")
+        md.append("| Metric | Count |")
+        md.append("| :--- | :--- |")
         md.append(f"| Total Security Findings Logged | {summary['total_findings']} |")
         md.append(f"| Autonomous Actions Executed | {summary['total_autonomous_actions']} |")
         md.append(f"| Human-Overseen Actions Approved | {summary['total_human_overridden_actions']} |")

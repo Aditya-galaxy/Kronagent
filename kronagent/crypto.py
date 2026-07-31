@@ -9,7 +9,6 @@ Asymmetric cryptographic signing and verification utilities for forensic custody
 from __future__ import annotations
 
 import abc
-import base64
 import os
 from typing import TYPE_CHECKING
 

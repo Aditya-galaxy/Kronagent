@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from kronagent.providers.aws import AwsContainmentAdapter
 from kronagent.providers.k8s import K8sContainmentAdapter

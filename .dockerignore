@@ -1,0 +1,52 @@
+# Keep the build context small and, more importantly, keep secrets and local
+# operational state out of an image that may be pushed to a registry.
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local operational state — real audit records, approvals and allowlists belong
+# to a deployment, never to an image.
+*.jsonl
+kronagent_audit.jsonl
+kronagent_approvals.json
+kronagent_allowlist.json
+kronagent_trajectory*.json
+*.db
+
+# Commercial planning — not published, not shipped
+research.md
+kronagent_next_steps.md
+kronagent_product_roadmap.md
+DEMO_SCRIPT.md
+
+# VCS and CI
+.git
+.github
+.gitignore
+
+# Python build/test artefacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Tests and local rigs are not part of the runtime image
+tests/
+testbed/
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+.claude/

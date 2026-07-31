@@ -4,11 +4,9 @@ Unit and integration tests for cryptographic signing of forensic custody chains.
 
 from __future__ import annotations
 
-import base64
 import os
 import boto3
 from moto import mock_aws
-import pytest
 
 from kronagent.crypto import LocalAsymmetricSigner, KmsSigner, get_signer
 from kronagent.config import Settings
