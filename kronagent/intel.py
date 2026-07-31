@@ -151,8 +151,8 @@ class ThreatIntelAgent:
                 )
             return ThreatIntelAssessment(finding_id=finding.finding_id, available=False)
 
-        from .sanitization import sanitize_finding
-        sanitized = sanitize_finding(finding)
+        from .sanitization import mask_finding
+        sanitized, mask_ctx = mask_finding(finding)
 
         resource_lines = "\n".join(
             f"  - {r.kind} {r.id}" + (f" ({r.attributes})" if r.attributes else "")
@@ -187,8 +187,9 @@ class ThreatIntelAgent:
             available=True,
             mitre_techniques=out.mitre_techniques,
             attack_lifecycle_stage=out.attack_lifecycle_stage,
-            ioc_assessment=out.ioc_assessment,
-            intel_summary=out.intel_summary,
+            # Unmasked before the record is shown to an operator.
+            ioc_assessment=mask_ctx.unmask(out.ioc_assessment),
+            intel_summary=mask_ctx.unmask(out.intel_summary),
             stix_matches=stix_matches,
         )
 
