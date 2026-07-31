@@ -157,8 +157,8 @@ class IncidentCommanderAgent:
         if self._llm is None:
             return IncidentAssessment(finding_id=finding.finding_id, available=False)
 
-        from .sanitization import sanitize_finding
-        sanitized = sanitize_finding(finding)
+        from .sanitization import mask_finding
+        sanitized, mask_ctx = mask_finding(finding)
 
         prompt = (
             "Synthesize the specialist assessments into one incident assessment.\n\n"
@@ -189,10 +189,11 @@ class IncidentCommanderAgent:
         return IncidentAssessment(
             finding_id=finding.finding_id,
             available=True,
-            incident_narrative=out.incident_narrative,
+            # Unmasked before the record is shown to an operator.
+            incident_narrative=mask_ctx.unmask(out.incident_narrative),
             priority=out.priority,
             escalate_to_human_now=out.escalate_to_human_now,
-            escalation_reason=out.escalation_reason,
-            key_risks=out.key_risks,
+            escalation_reason=mask_ctx.unmask(out.escalation_reason),
+            key_risks=[mask_ctx.unmask(k) for k in out.key_risks],
             recommended_posture=out.recommended_posture,
         )

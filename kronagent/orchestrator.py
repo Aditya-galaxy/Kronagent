@@ -131,8 +131,16 @@ class Orchestrator:
         prior = []
         if tenant_memory is not None:
             prior = tenant_memory.prior_to(finding.finding_id)
-            from .sanitization import sanitize_finding
-            tenant_memory.add(sanitize_finding(finding))
+            # Store the ORIGINAL finding, not a masked or sanitized copy.
+            # Campaign memory is internal state that never reaches a model
+            # directly — the correlation agent masks it at prompt-build time,
+            # through one context shared with the current finding.
+            #
+            # This used to store a character-stripped copy, which silently
+            # corrupted identity-bearing ids: 'sa@proj.iam...' became
+            # 'saproj.iam...', so two findings about the same service account
+            # no longer matched and the campaign they formed was invisible.
+            tenant_memory.add(finding)
 
         # 1. Triage (deterministic detection + LLM enrichment)
         verdict, candidates = await self._triage.assess(finding)

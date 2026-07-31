@@ -252,11 +252,24 @@ _SYSTEM = (
 )
 
 
-def _summarize_history(prior: Iterable[FindingSummary]) -> str:
+def _summarize_history(prior: Iterable[FindingSummary], ctx=None) -> str:
+    """Render prior findings for the prompt, masked through `ctx`.
+
+    Campaign memory holds real identifiers — it is internal state. Masking
+    happens here, at the boundary, and through the *same* context used for the
+    current finding. That shared context is the whole mechanism: a service
+    account appearing in both becomes `<SERVICE_ACCOUNT_0>` in both, so the
+    model can see the campaign. Two independent contexts would number them
+    differently and hide exactly the relationship this agent exists to find.
+    """
+    def m(value: str, kind: str) -> str:
+        return ctx.placeholder_for(value, kind) if (ctx and value) else value
+
     lines = []
     for s in prior:
-        ip = f" ip={s.remote_ip}" if s.remote_ip else ""
-        res = f" resources={s.resource_ids}" if s.resource_ids else ""
+        ip = f" ip={m(s.remote_ip, 'remote_ip')}" if s.remote_ip else ""
+        ids = [m(r, "resource") for r in s.resource_ids]
+        res = f" resources={ids}" if ids else ""
         lines.append(
             f"  - {s.finding_id} [{s.provider}] {s.finding_type} sev={s.severity}{ip}{res}"
         )
@@ -273,8 +286,8 @@ class CorrelationAgent:
         if self._llm is None or not prior:
             return CorrelationAssessment(finding_id=finding.finding_id, available=False)
 
-        from .sanitization import sanitize_finding
-        sanitized = sanitize_finding(finding)
+        from .sanitization import mask_finding
+        sanitized, mask_ctx = mask_finding(finding)
 
         resource_lines = "\n".join(
             f"  - {r.kind} {r.id}" for r in sanitized.resources
@@ -290,7 +303,7 @@ class CorrelationAgent:
             f"Remote IP: {sanitized.remote_ip or 'n/a'}\n"
             f"Implicated resources:\n{resource_lines}\n\n"
             "=== Recent prior findings (most recent last) ===\n"
-            f"{_summarize_history(prior)}\n"
+            f"{_summarize_history(prior, mask_ctx)}\n"
         )
 
         try:
@@ -312,6 +325,10 @@ class CorrelationAgent:
             part_of_campaign=out.part_of_campaign and bool(related),
             related=related,
             related_finding_ids=[r.finding_id for r in related],
-            campaign_narrative=out.campaign_narrative,
-            correlation_summary=out.correlation_summary,
+            # Unmask before this reaches a human. The model reasoned over
+            # placeholders, so its prose says "<SERVICE_ACCOUNT_0> was used
+            # from <REMOTE_IP_0>" — accurate and useless to an operator mid
+            # incident, who would have to look up which account that was.
+            campaign_narrative=mask_ctx.unmask(out.campaign_narrative),
+            correlation_summary=mask_ctx.unmask(out.correlation_summary),
         )
