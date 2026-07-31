@@ -38,13 +38,20 @@ via the datastore); the docstring says so rather than implying more.
 
 from __future__ import annotations
 
+import json
 import os
+import tempfile
 import time
 from collections import deque
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Deque, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 from .model import Finding
 from .schemas import ProposedAction
@@ -95,9 +102,101 @@ def legitimate_targets(finding: Finding) -> set[str]:
     return targets
 
 
+class HaltRecord(BaseModel):
+    """A latched halt, as persisted. Its presence in the store IS the halt."""
+
+    reason: str
+    engaged_at: str = Field(default_factory=_utc_now)
+    kind: str = "automatic"      # "automatic" (guard-tripped) | "manual" (operator)
+    engaged_by: str = "kronagent-trajectory-guard"
+    finding_id: str = ""
+    action_class: str = ""
+
+
+class TrajectoryStateStore:
+    """Persistence for the latched halt.
+
+    Two problems are solved by writing the halt to disk rather than holding it
+    only in memory:
+
+      1. **A restart must not silently release the kill switch.** An in-memory
+         latch is cleared by any process restart — including one triggered by
+         the very incident that tripped it. That turns a safety control into a
+         suggestion. A halt is meant to persist until a human clears it, so it
+         has to outlive the process.
+      2. **An operator needs a way to clear it.** The guard lives inside a
+         running orchestrator; `halt.py` is a separate process and cannot reach
+         into its memory. A shared file is the seam.
+
+    Read on every action, exactly like `AllowlistStore.is_allowed`, so an
+    operator's `halt.py clear` takes effect immediately with no restart.
+    """
+
+    def __init__(self, path: str) -> None:
+        self._path = path
+
+    # --- persistence (same atomic-replace pattern as AllowlistStore) ---
+    def read(self) -> Optional[HaltRecord]:
+        """The current halt, or None when containment is running normally."""
+        if not self._path or not os.path.exists(self._path):
+            return None
+        try:
+            with open(self._path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (json.JSONDecodeError, OSError):
+            # An unreadable state file must not be read as "not halted" — that
+            # would fail open. Report a halt and say why.
+            return HaltRecord(
+                reason=f"trajectory state file {self._path!r} is unreadable — failing safe",
+                engaged_at=_utc_now(), kind="automatic",
+            )
+        if not data:
+            return None
+        try:
+            return HaltRecord.model_validate(data)
+        except Exception:  # noqa: BLE001 - malformed state also fails safe
+            return HaltRecord(
+                reason=f"trajectory state file {self._path!r} is malformed — failing safe",
+                engaged_at=_utc_now(), kind="automatic",
+            )
+
+    def _write(self, data: Optional[dict]) -> None:
+        if not self._path:
+            return
+        directory = os.path.dirname(os.path.abspath(self._path)) or "."
+        fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(data or {}, fh, indent=2)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, self._path)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+
+    def engage(self, record: HaltRecord) -> HaltRecord:
+        """Persist a halt. The FIRST halt wins — a later trigger must not
+        overwrite the reason the operator needs to investigate."""
+        existing = self.read()
+        if existing is not None:
+            return existing
+        self._write(record.model_dump())
+        return record
+
+    def clear(self) -> Optional[HaltRecord]:
+        """Release the halt. Returns what was cleared (for the audit record),
+        or None if nothing was halted."""
+        existing = self.read()
+        self._write(None)
+        return existing
+
+
 class TrajectoryGuard:
-    def __init__(self, config: Optional[TrajectoryConfig] = None) -> None:
+    def __init__(self, config: Optional[TrajectoryConfig] = None,
+                 store: Optional[TrajectoryStateStore] = None) -> None:
         self._cfg = config or TrajectoryConfig()
+        self._store = store
         self._commits: Deque[float] = deque()
         self._scope_violations: Deque[float] = deque()
         self._halted = False
@@ -105,10 +204,27 @@ class TrajectoryGuard:
 
     @property
     def halted(self) -> bool:
+        # The store is authoritative when present: it carries halts engaged by
+        # a previous process or by an operator, and it reflects a `halt.py
+        # clear` immediately.
+        if self._store is not None:
+            record = self._store.read()
+            if record is not None:
+                self._halted = True
+                self._halt_reason = record.reason
+                return True
+            if self._halted:
+                # Cleared out from under us by an operator — adopt that.
+                self._halted = False
+                self._halt_reason = ""
+            return False
         return self._halted
 
     @property
     def halt_reason(self) -> str:
+        if self._store is not None:
+            record = self._store.read()
+            return record.reason if record else ""
         return self._halt_reason
 
     def _prune(self, dq: Deque[float], now: float) -> None:
@@ -116,10 +232,16 @@ class TrajectoryGuard:
         while dq and dq[0] < cutoff:
             dq.popleft()
 
-    def _engage_halt(self, reason: str) -> None:
+    def _engage_halt(self, reason: str, *, finding_id: str = "",
+                     action_class: str = "") -> None:
         if not self._halted:
             self._halted = True
             self._halt_reason = reason
+        if self._store is not None:
+            self._store.engage(HaltRecord(
+                reason=reason, engaged_at=_utc_now(), kind="automatic",
+                finding_id=finding_id, action_class=action_class,
+            ))
 
     def check_scope(self, action: ProposedAction, finding: Finding,
                     *, now: Optional[float] = None) -> Optional[TrajectoryEvent]:
@@ -139,7 +261,9 @@ class TrajectoryGuard:
         if tripped:
             self._engage_halt(
                 f"{len(self._scope_violations)} out-of-scope containment targets within "
-                f"{self._cfg.window_seconds:.0f}s — possible action-redirection attack"
+                f"{self._cfg.window_seconds:.0f}s — possible action-redirection attack",
+                finding_id=finding.finding_id,
+                action_class=action.action_class.value,
             )
         return TrajectoryEvent(
             kind="scope_violation",
@@ -164,7 +288,9 @@ class TrajectoryGuard:
             self._engage_halt(
                 f"{len(self._commits)} autonomous executions within "
                 f"{self._cfg.window_seconds:.0f}s exceeds the safe ceiling "
-                f"({self._cfg.max_auto_executions}) — runaway containment halted"
+                f"({self._cfg.max_auto_executions}) — runaway containment halted",
+                finding_id=finding.finding_id,
+                action_class=action.action_class.value,
             )
             return TrajectoryEvent(
                 kind="runaway_halt", reason=self._halt_reason,
@@ -173,10 +299,25 @@ class TrajectoryGuard:
             )
         return None
 
+    def engage_manual(self, reason: str, *, by: str) -> HaltRecord:
+        """Trip the kill switch by hand — the operator-initiated counterpart to
+        an automatic halt. Unlike the `kill_switch` setting this needs no
+        restart, and unlike that setting it is attributed and audited."""
+        record = HaltRecord(reason=reason, engaged_at=_utc_now(), kind="manual", engaged_by=by)
+        self._halted = True
+        self._halt_reason = reason
+        if self._store is not None:
+            return self._store.engage(record)
+        return record
+
     def reset(self) -> str:
         """Clear the latched halt and counters — an explicit operator action
         after investigating. Returns the reason that was cleared (for auditing)."""
         cleared = self._halt_reason
+        if self._store is not None:
+            record = self._store.clear()
+            if record is not None:
+                cleared = record.reason
         self._halted = False
         self._halt_reason = ""
         self._commits.clear()

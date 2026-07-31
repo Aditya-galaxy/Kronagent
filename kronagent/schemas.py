@@ -57,6 +57,21 @@ class ActionClass(str, Enum):
     DISABLE_SERVICE_ACCOUNT = "disable_service_account"
     STOP_VM_INSTANCE = "stop_vm_instance"
 
+    # --- Azure ---
+    # Deliberately distinct from the GCP compute/identity classes rather than
+    # shared: the allowlist is keyed by action class alone, so reusing a class
+    # across clouds would make trust earned on one cloud silently apply to
+    # another. BLOCK_IP stays shared — it is already common to AWS and GCP.
+    ISOLATE_VM_NSG = "isolate_vm_nsg"                  # deny-all NSG on the VM's NIC
+    DEALLOCATE_VM = "deallocate_vm"                    # stop + deallocate the VM
+    DISABLE_ENTRA_PRINCIPAL = "disable_entra_principal"  # disable an Entra ID user/SP
+    REVOKE_ENTRA_SESSIONS = "revoke_entra_sessions"    # invalidate refresh tokens
+
+    # --- In-house / on-premises infrastructure ---
+    ISOLATE_HOST_NETWORK = "isolate_host_network"      # quarantine VLAN / NAC / host firewall
+    DISABLE_LOCAL_ACCOUNT = "disable_local_account"    # disable a local or AD account
+    KILL_PROCESS = "kill_process"                      # terminate a running process
+
 
 class BlastRadius(str, Enum):
     SINGLE_RESOURCE = "single_resource"  # affects exactly one principal/instance/pod

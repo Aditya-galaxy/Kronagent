@@ -1,0 +1,64 @@
+[
+  {
+    "detector": "wazuh",
+    "alert_id": "kronagent-onprem-ssh-0001",
+    "rule": {
+      "id": "5710",
+      "name": "ssh_bruteforce_success",
+      "severity": "high"
+    },
+    "timestamp": "2026-07-28T02:12:44Z",
+    "description": "342 failed SSH authentications from a single source were followed by a successful login as svc-backup, then immediate enumeration of /etc/shadow.",
+    "host": {
+      "hostname": "db-prod-01.corp.internal",
+      "ip": "10.20.30.41",
+      "site": "dc-east"
+    },
+    "account": {
+      "username": "svc-backup",
+      "domain": "CORP"
+    },
+    "source_ip": "185.220.101.7"
+  },
+  {
+    "detector": "falco",
+    "alert_id": "kronagent-onprem-mining-0002",
+    "rule": {
+      "id": "falco-crypto-01",
+      "name": "crypto_mining",
+      "severity": "high"
+    },
+    "timestamp": "2026-07-28T02:26:10Z",
+    "description": "Process /usr/bin/xmrig spawned from a web application user and opened sustained stratum connections.",
+    "host": {
+      "hostname": "app-web-04.corp.internal",
+      "ip": "10.20.31.18",
+      "site": "dc-east"
+    },
+    "account": {
+      "username": "www-data",
+      "domain": ""
+    },
+    "process": {
+      "pid": 44122,
+      "executable": "/usr/bin/xmrig"
+    },
+    "source_ip": "45.133.1.90"
+  },
+  {
+    "detector": "suricata",
+    "alert_id": "kronagent-onprem-scan-0003",
+    "rule": {
+      "id": "2010935",
+      "name": "port_scan"
+    },
+    "timestamp": "2026-07-28T02:38:02Z",
+    "description": "Sequential TCP SYN probes across 1024 ports from a single external source.",
+    "host": {
+      "hostname": "edge-fw-01.corp.internal",
+      "ip": "10.20.0.1",
+      "site": "dc-east"
+    },
+    "source_ip": "198.51.100.23"
+  }
+]

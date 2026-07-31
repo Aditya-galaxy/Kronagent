@@ -12,7 +12,7 @@ import pytest
 from google.genai import errors
 
 from kronagent import llm as llm_module
-from kronagent.llm import LLMUnavailableError, _with_backoff
+from kronagent.llm import _with_backoff
 
 
 class FakeApiError(errors.APIError):

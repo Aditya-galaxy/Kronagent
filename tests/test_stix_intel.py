@@ -1,5 +1,5 @@
 import pytest
-from kronagent.model import Finding, ResourceRef
+from kronagent.model import Finding
 from kronagent.intel import ThreatIntelAgent, StixFeedDb, StixIndicator
 
 @pytest.mark.asyncio

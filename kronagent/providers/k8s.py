@@ -27,7 +27,7 @@ pipeline run in dry-run with nothing installed.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -206,7 +206,7 @@ class K8sContainmentAdapter:
         if ac == ActionClass.DELETE_POD:
             return (
                 [f"kubectl delete pod {t} -n {ns} --grace-period=30"],
-                f"controller reschedules automatically; no manual rollback (bare pods must be recreated from manifest)",
+                "controller reschedules automatically; no manual rollback (bare pods must be recreated from manifest)",
                 f"delete pod {ns}/{t}",
             )
         if ac == ActionClass.SCALE_DEPLOYMENT_ZERO:

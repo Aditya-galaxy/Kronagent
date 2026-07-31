@@ -1,0 +1,125 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kronagent"
+version = "0.1.0"
+description = "Autonomous AI threat-defense with graduated autonomy and a tamper-evident audit log"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Aditya Kumar" }]
+keywords = ["security", "soc", "incident-response", "guardduty", "kubernetes"]
+
+# Kept deliberately narrow. The cloud SDKs are optional extras because every
+# adapter imports them lazily: dry-run, the demo and the whole 338-test suite
+# run with none of them installed, and a container that does not contain AWS
+# is a container that cannot be blamed for touching AWS.
+dependencies = [
+    "pydantic>=2.13",
+    "google-genai>=2.12",
+    "python-dotenv>=1.2",
+    "pyjwt>=2.8.0",
+    "cryptography>=42.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+]
+
+[project.optional-dependencies]
+aws = ["boto3>=1.43"]
+k8s = ["kubernetes>=30.0"]
+azure = ["azure-identity>=1.17", "azure-mgmt-network>=25.0", "azure-mgmt-compute>=32.0"]
+gcp = ["google-cloud-compute>=1.19", "google-cloud-securitycenter>=1.31"]
+all = ["kronagent[aws,k8s,azure,gcp]"]
+dev = ["pytest>=8.0", "ruff>=0.6", "httpx>=0.27"]
+
+[project.urls]
+Homepage = "https://kronagent.com"
+
+[project.scripts]
+# The async entry points expose cli() wrappers; the rest are already
+# synchronous main(). Both spellings behave identically to running the file.
+kronagent-slice = "run_slice:cli"
+kronagent-eval = "run_eval:cli"
+kronagent-drift-check = "run_drift_check:cli"
+kronagent-cloud-drill = "run_cloud_drill:cli"
+kronagent-approve = "approve:main"
+kronagent-promote = "promote:main"
+kronagent-halt = "halt:main"
+kronagent-console = "run_console:main"
+kronagent-operators = "operators:main"
+kronagent-siem-export = "run_siem_export:main"
+kronagent-compliance-report = "run_compliance_report:main"
+
+[tool.setuptools]
+# Top-level operator CLIs live beside the package rather than inside it; they
+# are entry points, not library code.
+py-modules = [
+    "run_slice", "approve", "promote", "halt", "run_console",
+    "operators", "run_eval", "run_drift_check", "run_siem_export",
+    "run_compliance_report", "run_cloud_drill",
+]
+
+[tool.setuptools.packages.find]
+include = ["kronagent*"]
+
+[tool.setuptools.package-data]
+kronagent = ["static/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["build", "dist", ".venv"]
+
+[tool.ruff.lint]
+# Deliberately a ratchet, not a wish list. This codebase reached 18k lines
+# before it was ever linted; selecting every stylistic rule at once would mean
+# a 900-line reformatting commit that reviews as noise and hides real defects.
+#
+# Gated today — the rules that catch actual bugs:
+#   E9  syntax and runtime errors
+#   F   pyflakes: undefined names, unused variables, dead imports
+#   B   bugbear: mutable defaults, unused loop vars, except-without-from
+#   S   bandit: security lints, which a security product should not skip
+#
+# Deferred, to be turned on file-by-file as code is touched anyway:
+#   I    import sorting          (50 sites)
+#   UP   pyupgrade modernisation (~380 sites, mostly Optional[X] -> X | None)
+#   W    whitespace              (~300 sites)
+select = ["E9", "F", "B", "S"]
+
+ignore = [
+    "E501",  # line length: the formatter's job, not the linter's
+    "B008",  # FastAPI's Depends() in a default is the documented idiom
+    "B904",  # raise-without-from inside except: worth doing, not worth blocking CI on
+    "S311",  # non-crypto random: every use here is simulation, jitter or
+             # bootstrap resampling. Real randomness goes through `secrets`.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert, build fixtures, and construct throwaway credentials.
+"tests/*" = ["S", "B"]
+"testbed/*" = ["S"]          # local SQS emulator: fake AWS creds by design
+"demo_trajectory.py" = ["S"]
+"run_cloud_drill.py" = ["S"] # drill harness: synthetic resources and names
+
+# The f-string interpolates a hardcoded column list defined a few lines above;
+# every user-supplied value is bound with a `?` placeholder. Verified 2026-07-31.
+"kronagent/approvals.py" = ["S608"]
+
+# urlopen on an operator-configured endpoint (Slack webhook, on-prem control
+# plane). Not attacker-supplied, but the scheme is not validated either — see
+# the note in kronagent_product_roadmap.md. Ignored to unblock CI, not because
+# it is resolved.
+"kronagent/chatops.py" = ["S310"]
+"kronagent/providers/onprem.py" = ["S310"]
+
+# Legacy single-file prototypes that predate the package. Not shipped.
+"incident_response_engine.py" = ["S"]
+"incident_response_gemini.py" = ["S"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

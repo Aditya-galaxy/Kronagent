@@ -93,5 +93,12 @@ async def run_check() -> int:
         return 1
 
 
+def cli() -> int:
+    """Console-script entry point for `kronagent-drift-check`."""
+    try:
+        return asyncio.run(run_check())
+    except KeyboardInterrupt:
+        return 130
+
 if __name__ == "__main__":
     sys.exit(asyncio.run(run_check()))

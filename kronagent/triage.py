@@ -26,17 +26,20 @@ the normalized severity, so the pipeline never stalls waiting on the model.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from .llm import GeminiTriageClient, LLMUnavailableError
+from .llm import GeminiTriageClient
 from .model import Finding
 from .providers import plan_actions
 from .schemas import ProposedAction, TriageVerdict
 
 if TYPE_CHECKING:
     from .crypto import Signer
+
+_log = logging.getLogger("kronagent.triage")
 
 _SYSTEM = (
     "You are a senior SOC analyst reviewing a confirmed security finding from a "
@@ -110,8 +113,18 @@ class TriageEngine:
                 if self._signer is not None:
                     verdict = verdict.with_signature(self._signer)
                 return verdict, candidates
-            except (LLMUnavailableError, Exception):  # noqa: BLE001 - fall back deterministically
-                pass
+            except Exception as exc:  # noqa: BLE001 - fall back deterministically
+                # The fallback below is correct and safe, which is exactly why
+                # this needs to be noisy: a silently-degrading triage agent
+                # looks identical to a working one from the outside. An
+                # operator should be able to see that every verdict for the
+                # last hour came from severity alone because the model was
+                # unreachable — not discover it during an incident review.
+                _log.warning(
+                    "triage LLM unavailable for %s (%s: %s) — falling back to "
+                    "deterministic severity-only verdict",
+                    finding.finding_id, type(exc).__name__, exc,
+                )
 
         # Deterministic fallback: normalized severity alone drives the verdict.
         verdict = TriageVerdict(

@@ -76,12 +76,16 @@ Finding (AWS GuardDuty or Kubernetes audit event, normalized)
 
 ## What it actually does
 
-- **Multi-provider detection.** AWS (GuardDuty findings — IAM/EC2) and
-  Kubernetes (audit events — pods/nodes/deployments) normalize into one
+- **Multi-provider detection.** Five substrates — AWS (GuardDuty — IAM/EC2),
+  Azure (Defender for Cloud — VMs/Entra ID), GCP (Security Command Center —
+  service accounts/Compute), Kubernetes (audit events — pods/nodes/deployments)
+  and in-house/on-premises (hosts/accounts/processes) — normalize into one
   provider-neutral `Finding` type and flow through the identical pipeline.
-  Adding a third source (Azure Defender, GCP SCC, an in-house detector) is a
-  new module in `kronagent/providers/` plus a registry entry — nothing else
-  changes.
+  Adding another source is a new module in `kronagent/providers/` plus a
+  registry entry; nothing above that seam changes. Because on-premises
+  infrastructure has no vendor schema to normalize, that provider defines a
+  small **ingestion contract** instead, and detectors (Wazuh, Falco, Suricata,
+  syslog) map onto it.
 - **Live ingestion.** GuardDuty → EventBridge → SQS, long-polled with
   at-least-once, ack-after-process delivery — a crash mid-processing
   redelivers the finding rather than losing it.
@@ -188,32 +192,51 @@ kronagent/
   model.py            provider-neutral Finding / ResourceRef
   schemas.py           action taxonomy, triage/policy/outcome/audit types
   providers/
+    __init__.py         registry: normalizers, planners, containment adapters
     aws.py              GuardDuty normalization + IAM/EC2 containment
+    azure.py            Defender for Cloud normalization + VM/Entra containment
+    gcp.py              SCC normalization + service-account/Compute containment
     k8s.py               Kubernetes audit normalization + pod/node containment
+    onprem.py           in-house detector contract + host/account/process containment
   triage.py            deterministic action-mapping + LLM triage
   intel.py             Threat Intelligence Agent (MITRE ATT&CK)
   correlation.py       Investigation / Correlation Agent (+ campaign memory)
   commander.py         Incident Commander Agent (synthesis + escalation)
   forensics.py         Forensics Agent (evidence + chain of custody)
   policy.py            graduated-autonomy decision engine
+  trajectory.py        behavioral-trajectory guard (automatic kill switch)
   allowlist.py         audited, live-reloadable earn-trust store
   containment.py       provider-agnostic execution dispatch
   approvals.py         human approval workflow (supports SQLite/JSON)
   audit.py             hash-chained, tamper-evident audit log
+  identity.py          operator identity + RBAC (local & OIDC providers)
+  sanitization.py      prompt-injection sanitization for LLM-facing copies
+  crypto.py            KMS/RSA signing for custody + agent non-repudiation
+  ocsf.py              OCSF normalization for SIEM export
+  chatops.py           Slack/Teams approval notifications
   compliance.py        EU AI Act compliance reporting engine
   ingestion.py         file replay + live SQS ingestion
+  web.py               analyst console REST/UI
   config.py            all safety-critical settings (fail-safe defaults)
 
 run_slice.py           runnable entry point
 promote.py             earn-trust governance CLI
 approve.py             human approval CLI
+halt.py                kill-switch CLI (status / engage / clear a halt)
+operators.py           operator registry admin CLI (identity bootstrap)
+run_console.py         analyst web console server
+run_eval.py            measured evaluation harness
+run_siem_export.py     OCSF SIEM exporter
+run_cloud_drill.py     cloud containment chaos/rollback drill
+run_drift_check.py     continuous red-team drift simulation
 run_compliance_report.py  compliance reporting CLI
 demo.sh                narrated live terminal demo
+demo_trajectory.py     adversarial trajectory-guard walkthrough
 
 testbed/               local SQS emulator (no AWS account, no Docker)
 deploy/                IAM policies, EventBridge/SQS wiring docs
-samples/                real-schema sample findings (AWS + Kubernetes)
-tests/                 176 tests, offline, ~2s
+samples/                real-schema sample findings (AWS, Azure, GCP, K8s, on-prem)
+tests/                 338 tests, offline, ~16s
 ```
 
 ---
@@ -225,7 +248,7 @@ python3 -m pip install -r requirements-dev.txt
 python3 -m pytest -q
 ```
 
-258 fully offline, deterministic unit and integration tests passing cleanly. Coverage highlights: the policy engine's safety ceiling (destructive actions proven to never auto-execute, even if allowlisted), the audit log's tamper-evidence (mutation-tested, not just asserted), the approval-provider round-trip, forensics-before-containment ordering (mutation-tested), live ingestion against a real SQS server, SQLite-backed storage persistence, and EU AI Act compliance report generation.
+338 fully offline, deterministic unit and integration tests passing cleanly. Coverage highlights: the policy engine's safety ceiling (destructive actions proven to never auto-execute, even if allowlisted), the audit log's tamper-evidence (mutation-tested, not just asserted), the behavioral-trajectory guard (scope integrity, runaway rate, and latching — all with injected clocks rather than sleeps), a **cross-provider scope invariant** asserting that every planned action, for every provider, targets a resource its finding actually implicates (mutation-tested against a real defect this caught in the GCP planner), the approval-provider round-trip, forensics-before-containment ordering (mutation-tested), live ingestion against a real SQS server, SQLite-backed storage persistence, and EU AI Act compliance report generation.
 
 ---
 
@@ -243,24 +266,45 @@ python3 -m pytest -q
 
 This is a fully functional, enterprise-ready vertical slice:
 - **Core Agent Team & Advisory Pipeline**: Triage, Threat Intel (with MITRE ATT&CK & STIX feed matching), Campaign Correlation, Incident Commander, and Deterministic Forensics.
-- **Multi-Cloud Containment Execution**: AWS (GuardDuty/IAM/EC2), Kubernetes (API Audit/NetworkPolicy/Nodes), and GCP (Security Command Center/IAM Service Accounts/Compute VMs).
+- **Five Ingestion Substrates**: AWS (GuardDuty/IAM/EC2), Azure (Defender for Cloud/VMs/Entra ID), GCP (Security Command Center/IAM Service Accounts/Compute VMs), Kubernetes (API Audit/NetworkPolicy/Nodes), and in-house/on-premises (hosts, accounts, processes). All five ingest, normalize, plan and gate through one pipeline; live-execution depth varies by provider — see the table below.
 - **Graduated Autonomy & Governance**: Deterministic policy engine, live-reloadable allowlist store, ChatOps (Slack Block Kit & Webhooks), and RBAC/OIDC SSO authentication.
+- **Behavioral-Trajectory Guard**: A deterministic automatic kill switch over Kronagent's *own* action stream — scope-integrity enforcement (an action may only target a resource its finding implicates) plus a runaway-rate limiter that latches a platform-wide halt. The halt is **persisted**, so it survives a process restart rather than being silently released by one, and is released only by an audited, admin-gated `halt.py clear` — which a running orchestrator observes immediately, with no restart.
 - **Enterprise Isolation & Web Console**: Multi-tenant business-unit isolation, single-page Analyst Web Console (`run_console.py`), and OCSF SIEM exporter (`run_siem_export.py`).
 - **Security & Integrity**: Cryptographic agent-to-agent non-repudiation signatures, `Permission.VIEW` REST endpoint access control, target-preservation sanitization, and continuous chaos rollback validation (`run_cloud_drill.py`).
-- **Test Suite**: 258 fully offline, deterministic unit and integration tests passing cleanly.
+- **Test Suite**: 338 fully offline, deterministic unit and integration tests passing cleanly.
+
+### Live containment execution by provider
+
+Every provider ingests, normalizes, plans and policy-gates identically. What
+differs is how much has been wired to real APIs:
+
+| Provider | Live execution | Validated against real infrastructure |
+|---|---|---|
+| Kubernetes | All action classes | ✅ Kind + Calico cluster, traffic provably blocked |
+| AWS | All action classes | ❌ Not yet run against a real account |
+| GCP | All action classes (simulated state transitions) | ❌ |
+| On-premises | All four action classes | ❌ Requires a configured control-plane URL |
+| Azure | `deallocate_vm` only — NSG isolation and Entra ID actions raise `NotImplementedError` rather than guess at NIC resolution or Graph consent | ❌ |
 
 ---
 
 ## Roadmap & Future Work
 
-All core roadmap phases (Phases 0 through 5) are implemented and validated:
+Most phases are delivered.
 
-- [x] **Phase 0 — Defect Fixes & Target Preservation**: Preserves raw resource IDs in control logic while sanitizing LLM prompt inputs.
-- [x] **Phase 1 — Measured Evaluation Harness**: Labeled benchmark dataset (`eval_dataset.json`) with Wilson score confidence intervals for Precision, Recall, F1, CDC, and FPUA.
+- [x] **Phase 0 — Target Preservation**: Containment targets come verbatim from the parsed finding; sanitization applies to the LLM-facing copy only. *(One residual defect: the sanitizer strips `@` from identity IDs and truncates long attributes, degrading campaign correlation — not containment. Tracked.)*
+- [x] **Phase 1 — Evaluation Harness (initial)**: Labeled benchmark dataset (`eval_dataset.json`) with Wilson score confidence intervals for Precision, Recall, F1, CDC, and FPUA. *Not yet a CI regression gate — see below.*
 - [x] **Phase 2 — Enterprise Readiness**: OCSF schema normalization, OIDC SSO authentication, multi-tenant database/audit partitioning, Analyst Web Console, and ChatOps Slack integration.
-- [x] **Phase 3 — Real Cloud Validation**: Programmatic AWS client retry/error wrapper and automated cloud containment chaos drill CLI (`run_cloud_drill.py`).
-- [x] **Phase 4 — Agent Team Security Hardening**: Cryptographic agent-to-agent decision signatures, least-privilege `Permission.VIEW` REST endpoint authorization, and session credential management.
-- [x] **Phase 5 — Extended Integrations**: GCP Security Command Center (GCP SCC) provider (`gcp.py`) and STIX/TAXII threat intelligence feed indicator matching.
+- [x] **Phase 4 — Agent Team Security Hardening**: Cryptographic agent-to-agent decision signatures, least-privilege `Permission.VIEW` REST endpoint authorization, session credential management, and the behavioral-trajectory guard.
+- [x] **Phase 5 — Extended Integrations**: Azure Defender for Cloud (`azure.py`), GCP Security Command Center (`gcp.py`), in-house/on-premises (`onprem.py`), and STIX/TAXII threat intelligence feed indicator matching.
+
+### Honestly still open
+
+- [ ] **Phase 3 — Real Cloud Validation.** Previously listed as complete; that was an overstatement. What exists is an AWS client retry/error wrapper and a chaos-drill CLI (`run_cloud_drill.py`) — valuable, but **the AWS containment path has never executed against a real AWS account.** Only the Kubernetes path is validated on real infrastructure.
+- [x] ~~Operator CLI to clear a latched trajectory halt.~~ **Done** — `halt.py` (`status` / `engage` / `clear`), admin-gated and audited. Fixing this surfaced a second, more serious defect: the halt was held **in memory only**, so *any process restart silently released the kill switch* — including a restart caused by the incident that tripped it. A latched halt is now persisted and survives restarts; see the note below.
+- [ ] **Evaluation harness as a CI regression gate**, so capability changes cannot silently degrade accuracy. The motivating incident: the GCP planner was emitting a target the trajectory guard would reject in production — silently breaking that containment path — while the whole suite stayed green. A cross-provider scope invariant now covers that class of bug.
+- [ ] **Cross-cloud policy consistency.** GCP `stop_vm_instance` is classified non-destructive (auto-eligible) while the Azure equivalent `deallocate_vm` is destructive (always human-gated). A security-review decision, deliberately left unreconciled.
+- [ ] **Azure live execution** (NSG isolation, Entra ID via Microsoft Graph) and **EDR sources** (CrowdStrike/SentinelOne).
 
 ---
 

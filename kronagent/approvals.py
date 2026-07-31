@@ -259,7 +259,10 @@ class ApprovalStore:
             if not row:
                 return None
             
-            data = dict(zip(columns, row))
+            # strict=True: the SELECT is built from this exact column list, so a
+            # length mismatch means schema drift and should fail loudly
+            # rather than silently truncate an approval record.
+            data = dict(zip(columns, row, strict=True))
             data["parameters"] = json.loads(data["parameters"])
             data["reversible"] = bool(data["reversible"])
             data["planned_api_calls"] = json.loads(data["planned_api_calls"])
@@ -300,7 +303,10 @@ class ApprovalStore:
             rows = cursor.fetchall()
             items = []
             for row in rows:
-                data = dict(zip(columns, row))
+                # strict=True: the SELECT is built from this exact column list,
+                # so a length mismatch means schema drift and should fail loudly
+                # rather than silently truncate an approval record.
+                data = dict(zip(columns, row, strict=True))
                 data["parameters"] = json.loads(data["parameters"])
                 data["reversible"] = bool(data["reversible"])
                 data["planned_api_calls"] = json.loads(data["planned_api_calls"])
