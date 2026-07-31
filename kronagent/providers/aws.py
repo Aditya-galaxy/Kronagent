@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -208,24 +208,58 @@ def plan_aws_actions(finding: Finding) -> list[ProposedAction]:
 class AwsContainmentAdapter:
     provider = PROVIDER
 
-    def __init__(self, *, region: str, quarantine_security_group_id: str = "", quarantine_nacl_id: str = "") -> None:
+    def __init__(self, *, region: str, quarantine_security_group_id: str = "",
+                 quarantine_nacl_id: str = "",
+                 credentials_for: Optional[Callable[[str], Optional[dict]]] = None) -> None:
+        """
+        credentials_for: given a tenant id, return AWS credentials for that
+            tenant's assumed containment role, or None to use whatever the
+            process itself holds.
+
+            Omitted, the adapter behaves exactly as before — ambient process
+            credentials — which is what local development and the single-tenant
+            deployment want. Supplied (see kronagent.connect.CredentialBroker),
+            every call runs against the customer's own account under a role
+            they granted and can revoke.
+        """
         self._region = region
         self._quarantine_sg = quarantine_security_group_id
         self._quarantine_nacl = quarantine_nacl_id
-        self._ec2 = None
-        self._iam = None
+        self._credentials_for = credentials_for
+        # Keyed by (tenant, service). One boto3 client per tenant, never shared:
+        # a client carries its credentials, so a shared one would silently apply
+        # the first tenant's role to every tenant after it.
+        self._clients: dict[tuple[str, str], Any] = {}
 
-    def _ec2_client(self):
-        if self._ec2 is None:
-            import boto3
-            self._ec2 = boto3.client("ec2", region_name=self._region)
-        return self._ec2
+    def _client(self, service: str, tenant_id: str = "default"):
+        key = (tenant_id, service)
+        existing = self._clients.get(key)
+        if existing is not None:
+            return existing
 
-    def _iam_client(self):
-        if self._iam is None:
-            import boto3
-            self._iam = boto3.client("iam", region_name=self._region)
-        return self._iam
+        import boto3
+        creds = self._credentials_for(tenant_id) if self._credentials_for else None
+        client = boto3.client(service, region_name=self._region, **(creds or {}))
+        self._clients[key] = client
+        return client
+
+    def _ec2_client(self, tenant_id: str = "default"):
+        return self._client("ec2", tenant_id)
+
+    def _iam_client(self, tenant_id: str = "default"):
+        return self._client("iam", tenant_id)
+
+    def invalidate(self, tenant_id: Optional[str] = None) -> None:
+        """Drop cached clients so the next call re-resolves credentials.
+
+        Assumed-role credentials expire; the broker refreshes them, but a boto3
+        client built with the old ones would keep using them until it failed.
+        """
+        if tenant_id is None:
+            self._clients.clear()
+        else:
+            for k in [k for k in self._clients if k[0] == tenant_id]:
+                self._clients.pop(k, None)
 
     def plan(self, action: ProposedAction) -> tuple[list[str], str, str]:
         ac = action.action_class
@@ -308,13 +342,17 @@ class AwsContainmentAdapter:
     def _perform_sync(self, action: ProposedAction) -> tuple[str, str]:
         ac = action.action_class
         t = action.target
+        # Read once, here. Every client below is resolved for this tenant, so a
+        # containment action can only ever touch the account whose finding
+        # produced it.
+        tid = action.tenant_id
         if ac == ActionClass.DISABLE_ACCESS_KEY:
             user = action.parameters.get("user_name", "")
-            self._aws_call(self._iam_client().update_access_key, UserName=user, AccessKeyId=t, Status="Inactive")
+            self._aws_call(self._iam_client(tid).update_access_key, UserName=user, AccessKeyId=t, Status="Inactive")
             return (f"access key {t} set Inactive",
                     f"iam.update_access_key(UserName='{user}', AccessKeyId='{t}', Status='Active')")
         if ac == ActionClass.ATTACH_DENY_ALL_TO_PRINCIPAL:
-            self._aws_call(self._iam_client().put_user_policy,
+            self._aws_call(self._iam_client(tid).put_user_policy,
                 UserName=t, PolicyName="kronagent-quarantine-deny-all", PolicyDocument=_DENY_ALL_POLICY
             )
             return (f"deny-all policy attached to {t}",
@@ -322,7 +360,7 @@ class AwsContainmentAdapter:
         if ac == ActionClass.ISOLATE_INSTANCE_SG:
             if not self._quarantine_sg:
                 raise RuntimeError("KRONAGENT_QUARANTINE_SG_ID is not configured")
-            ec2 = self._ec2_client()
+            ec2 = self._ec2_client(tid)
             desc = self._aws_call(ec2.describe_instances, InstanceIds=[t])
             original = [
                 g["GroupId"]
@@ -335,7 +373,7 @@ class AwsContainmentAdapter:
         if ac == ActionClass.BLOCK_IP:
             if not self._quarantine_nacl:
                 raise RuntimeError("KRONAGENT_QUARANTINE_NACL_ID is not configured")
-            ec2 = self._ec2_client()
+            ec2 = self._ec2_client(tid)
             desc = self._aws_call(ec2.describe_network_acls, NetworkAclIds=[self._quarantine_nacl])
             entries = desc["NetworkAcls"][0]["Entries"]
             ingress_nums = {e["RuleNumber"] for e in entries if not e["Egress"]}
@@ -381,7 +419,7 @@ class AwsContainmentAdapter:
                     }
                 }]
             }, separators=(",", ":"))
-            self._aws_call(self._iam_client().put_role_policy,
+            self._aws_call(self._iam_client(tid).put_role_policy,
                 RoleName=t,
                 PolicyName="kronagent-revoke-sessions",
                 PolicyDocument=policy_doc
@@ -391,6 +429,6 @@ class AwsContainmentAdapter:
                 f"iam.delete_role_policy(RoleName='{t}', PolicyName='kronagent-revoke-sessions')"
             )
         if ac == ActionClass.TERMINATE_INSTANCE:
-            self._aws_call(self._ec2_client().terminate_instances, InstanceIds=[t])
+            self._aws_call(self._ec2_client(tid).terminate_instances, InstanceIds=[t])
             return (f"instance {t} termination requested", "IRREVERSIBLE — restore from AMI/snapshot")
         raise NotImplementedError(f"real AWS execution for {ac.value} not enabled in this slice")
