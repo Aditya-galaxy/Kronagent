@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import stat
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
@@ -25,6 +27,7 @@ import pytest
 from kronagent.connect import (
     AwsConnection,
     ConnectionState,
+    ConnectionStore,
     CredentialBroker,
     Grant,
     PreflightResult,
@@ -552,3 +555,252 @@ def test_actions_default_to_the_default_tenant() -> None:
     a = ProposedAction(provider="aws", action_class=ActionClass.BLOCK_IP,
                        target="1.2.3.4", rationale="r")
     assert a.tenant_id == "default"
+
+
+# --------------------------------------------------------------------------- #
+# ConnectionStore
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture()
+def store(tmp_path):
+    return ConnectionStore(str(tmp_path / "connections.json"))
+
+
+def test_create_mints_a_pending_connection(store) -> None:
+    c = store.create(tenant_id="acme", account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+    assert c.state is ConnectionState.PENDING
+    assert c.external_id.startswith("kronagent-")
+    assert c.can_contain is False
+    assert store.get("acme") == c
+
+
+def test_round_trips_through_disk(store) -> None:
+    created = store.create(tenant_id="acme", account_id=CUSTOMER_ACCOUNT, region="eu-west-1")
+    reopened = ConnectionStore(store._path).get("acme")
+    assert reopened == created
+
+
+def test_the_file_holding_external_ids_is_not_world_readable(store) -> None:
+    """The External ID is the credential that lets Kronagent assume a customer's
+    role. A role ARN is not secret — it appears in the customer's own CloudTrail
+    — so this file being readable is most of what an attacker needs."""
+    store.create(tenant_id="acme", account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+    mode = stat.S_IMODE(os.stat(store._path).st_mode)
+    assert mode == 0o600, f"expected 0600, got {oct(mode)}"
+
+
+def test_permissions_survive_a_rewrite(store) -> None:
+    """os.replace() takes the temp file's mode, not the replaced file's — so a
+    careless second write is exactly where 0600 would silently become 0644."""
+    store.create(tenant_id="acme", account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+    store.record_role("acme", Grant.OBSERVE,
+                      f"arn:aws:iam::{CUSTOMER_ACCOUNT}:role/KronagentObserveRole")
+    assert stat.S_IMODE(os.stat(store._path).st_mode) == 0o600
+
+
+def test_create_refuses_to_overwrite_an_existing_tenant(store) -> None:
+    """Re-minting an External ID silently invalidates the trust policy the
+    customer already installed; the only symptom is containment failing during
+    an incident."""
+    store.create(tenant_id="acme", account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+    with pytest.raises(ValueError, match="already connected"):
+        store.create(tenant_id="acme", account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+
+
+def test_record_role_attaches_each_grant_independently(store) -> None:
+    store.create(tenant_id="acme", account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+    observe = f"arn:aws:iam::{CUSTOMER_ACCOUNT}:role/KronagentObserveRole"
+    contain = f"arn:aws:iam::{CUSTOMER_ACCOUNT}:role/KronagentContainRole"
+
+    c = store.record_role("acme", Grant.OBSERVE, observe)
+    assert c.observe_role_arn == observe
+    assert c.can_contain is False, "observing must not imply containing"
+
+    c = store.record_role("acme", Grant.CONTAIN, contain)
+    assert c.can_contain is True
+    assert c.observe_role_arn == observe, "attaching one grant must not clear the other"
+
+
+def test_record_preflight_updates_state_and_timestamp(store) -> None:
+    store.create(tenant_id="acme", account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+    c = store.record_preflight("acme", PreflightResult(ok=True, missing=["guardduty:ListDetectors"]))
+    assert c.state is ConnectionState.DEGRADED
+    assert c.missing_permissions == ("guardduty:ListDetectors",)
+    assert c.last_verified is not None
+
+    c = store.record_preflight("acme", PreflightResult(ok=True))
+    assert c.state is ConnectionState.HEALTHY
+    assert c.missing_permissions == ()
+
+
+def test_record_role_on_unknown_tenant_raises(store) -> None:
+    with pytest.raises(KeyError):
+        store.record_role("ghost", Grant.OBSERVE, "arn:aws:iam::123456789012:role/X")
+
+
+def test_delete_forgets_the_tenant(store) -> None:
+    store.create(tenant_id="acme", account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+    assert store.delete("acme") is True
+    assert store.get("acme") is None
+    assert store.delete("acme") is False
+
+
+def test_list_is_stable_and_covers_every_tenant(store) -> None:
+    for t in ("zeta", "alpha", "mid"):
+        store.create(tenant_id=t, account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+    assert [c.tenant_id for c in store.list()] == ["alpha", "mid", "zeta"]
+
+
+def test_tenants_get_distinct_external_ids(store) -> None:
+    a = store.create(tenant_id="a", account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+    b = store.create(tenant_id="b", account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+    assert a.external_id != b.external_id
+
+
+def test_a_corrupt_store_fails_loudly(tmp_path) -> None:
+    """An unreadable connection file means we cannot prove which account we are
+    entitled to touch. Behaving as though nobody had connected would be a quiet
+    outage; behaving as though the file were empty would be worse."""
+    path = tmp_path / "connections.json"
+    path.write_text("{not json")
+    with pytest.raises(RuntimeError, match="corrupt"):
+        ConnectionStore(str(path)).get("acme")
+
+
+def test_missing_store_reads_as_empty_not_an_error(tmp_path) -> None:
+    s = ConnectionStore(str(tmp_path / "nope.json"))
+    assert s.list() == []
+    assert s.get("acme") is None
+
+
+# --- the resolver the containment adapters consume --------------------------- #
+
+def test_resolver_returns_none_for_an_unknown_tenant(store) -> None:
+    broker = CredentialBroker()
+    resolve = store.credentials_resolver(broker, Grant.CONTAIN)
+    assert resolve("nobody") is None
+
+
+def test_resolver_refuses_containment_without_the_second_grant(store) -> None:
+    """The customer installed the observe stack only. Containment credentials
+    must not be conjured from the observe role."""
+    store.create(tenant_id="acme", account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+    store.record_role("acme", Grant.OBSERVE,
+                      f"arn:aws:iam::{CUSTOMER_ACCOUNT}:role/KronagentObserveRole")
+
+    broker = CredentialBroker()
+    broker._sts = MagicMock()
+    assert store.credentials_resolver(broker, Grant.CONTAIN)("acme") is None
+    broker._sts.assume_role.assert_not_called()
+
+
+def test_resolver_returns_credentials_once_containment_is_granted(store) -> None:
+    store.create(tenant_id="acme", account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+    store.record_role("acme", Grant.CONTAIN,
+                      f"arn:aws:iam::{CUSTOMER_ACCOUNT}:role/KronagentContainRole")
+
+    broker = CredentialBroker()
+    sts = MagicMock()
+    sts.assume_role.return_value = _sts_response()
+    broker._sts = sts
+
+    creds = store.credentials_resolver(broker, Grant.CONTAIN)("acme")
+    assert creds["aws_access_key_id"] == "ASIAEXAMPLE"
+    assert sts.assume_role.call_args.kwargs["ExternalId"] == store.get("acme").external_id
+
+
+# --------------------------------------------------------------------------- #
+# End to end: store -> broker -> adapter
+#
+# Each piece is tested above. This asserts they compose — that a connection on
+# disk actually causes containment to run under that customer's role, which is
+# the only thing any of it is for.
+# --------------------------------------------------------------------------- #
+
+@requires_boto3
+def test_store_drives_containment_under_the_right_role(tmp_path, monkeypatch) -> None:
+    from kronagent.providers.aws import AwsContainmentAdapter
+    from kronagent.schemas import ActionClass, ProposedAction
+
+    store = ConnectionStore(str(tmp_path / "connections.json"))
+    for tenant, acct in (("acme", "111111111111"), ("globex", "222222222222")):
+        store.create(tenant_id=tenant, account_id=acct, region="us-east-1")
+        store.record_role(tenant, Grant.CONTAIN,
+                          f"arn:aws:iam::{acct}:role/KronagentContainRole")
+
+    # STS hands back a credential that identifies which role was assumed, so the
+    # assertion below can tell the two tenants apart.
+    broker = CredentialBroker()
+    sts = MagicMock()
+
+    def assume(**kw):
+        acct = kw["RoleArn"].split(":")[4]
+        return {"Credentials": {
+            "AccessKeyId": f"ASIA-{acct}",
+            "SecretAccessKey": "s",
+            "SessionToken": "t",
+            "Expiration": datetime.now(timezone.utc) + timedelta(minutes=60),
+        }}
+
+    sts.assume_role.side_effect = assume
+    broker._sts = sts
+
+    used: list[str] = []
+    import boto3
+
+    def fake_client(service, region_name=None, **kw):
+        used.append(kw.get("aws_access_key_id", "AMBIENT"))
+        return MagicMock()
+
+    monkeypatch.setattr(boto3, "client", fake_client)
+
+    adapter = AwsContainmentAdapter(
+        region="us-east-1",
+        credentials_for=store.credentials_resolver(broker, Grant.CONTAIN),
+    )
+
+    for tenant in ("acme", "globex"):
+        adapter._perform_sync(ProposedAction(
+            provider="aws", tenant_id=tenant,
+            action_class=ActionClass.DISABLE_ACCESS_KEY,
+            target="AKIAEXAMPLE", rationale="test",
+            parameters={"user_name": "victim"},
+        ))
+
+    assert "ASIA-111111111111" in used
+    assert "ASIA-222222222222" in used
+    assert "AMBIENT" not in used, "no action may fall back to our own credentials"
+
+    # And each assume_role carried that tenant's own External ID.
+    sent = {c.kwargs["ExternalId"] for c in sts.assume_role.call_args_list}
+    assert sent == {store.get("acme").external_id, store.get("globex").external_id}
+
+
+@requires_boto3
+def test_a_tenant_without_the_containment_stack_never_reaches_aws(tmp_path, monkeypatch) -> None:
+    """Observe-only tenant. The resolver returns None, so the adapter falls back
+    to ambient credentials — which is why callers must check can_contain before
+    planning containment. This test documents that boundary rather than
+    pretending the resolver enforces it."""
+    from kronagent.providers.aws import AwsContainmentAdapter
+
+    store = ConnectionStore(str(tmp_path / "c.json"))
+    store.create(tenant_id="acme", account_id=CUSTOMER_ACCOUNT, region="us-east-1")
+    store.record_role("acme", Grant.OBSERVE,
+                      f"arn:aws:iam::{CUSTOMER_ACCOUNT}:role/KronagentObserveRole")
+
+    broker = CredentialBroker()
+    broker._sts = MagicMock()
+
+    import boto3
+    monkeypatch.setattr(boto3, "client", lambda *a, **k: MagicMock())
+
+    adapter = AwsContainmentAdapter(
+        region="us-east-1",
+        credentials_for=store.credentials_resolver(broker, Grant.CONTAIN),
+    )
+    adapter._iam_client("acme")
+
+    broker._sts.assume_role.assert_not_called()
+    assert store.get("acme").can_contain is False
