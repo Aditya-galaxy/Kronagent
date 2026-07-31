@@ -1,0 +1,84 @@
+# Architecture contracts, enforced in CI.
+#
+# Kronagent's central claim is that a language model can influence *whether*
+# containment proceeds but never *what* it targets. Today that holds because of
+# how the schemas are shaped, plus convention, plus tests that check behaviour.
+# None of those stop a future contributor from importing the containment
+# executor into an agent module and wiring a model's output straight to it —
+# the review that catches such a change is a human one.
+#
+# These contracts make the structural half mechanical. They do not replace the
+# behavioural tests; they stop the shape of the code drifting away from the
+# claim while everyone is looking at something else.
+#
+# Run locally:  lint-imports
+
+[importlinter]
+root_packages =
+    kronagent
+
+[importlinter:contract:llm-is-a-transport]
+name = The LLM client is a pure transport
+type = forbidden
+source_modules =
+    kronagent.llm
+forbidden_modules =
+    kronagent.containment
+    kronagent.policy
+    kronagent.providers
+    kronagent.approvals
+    kronagent.allowlist
+# llm.py talks to a model and returns structured output. It has no business
+# knowing what a containment action is, what the policy engine decides, or what
+# is on the allowlist. Keeping it ignorant is what makes "the model is advisory"
+# checkable rather than merely asserted.
+
+[importlinter:contract:agents-cannot-execute]
+name = Advisory agents cannot reach the containment executor
+type = forbidden
+source_modules =
+    kronagent.triage
+    kronagent.intel
+    kronagent.commander
+    kronagent.correlation
+forbidden_modules =
+    kronagent.containment
+# The four LLM-backed agents enrich an incident record. They may consult the
+# deterministic planner in kronagent.providers — that is precisely how targets
+# come from the finding rather than from a model — but nothing that reasons
+# with a model may hold a reference to the thing that performs side effects.
+#
+# Note what this does NOT forbid: triage imports providers.plan_actions, and
+# that is correct. The line is between planning from normalized data and
+# executing.
+
+[importlinter:contract:policy-decides-alone]
+name = The policy engine does not consult a model
+type = forbidden
+source_modules =
+    kronagent.policy
+    kronagent.allowlist
+    kronagent.trajectory
+forbidden_modules =
+    kronagent.llm
+    kronagent.triage
+    kronagent.intel
+    kronagent.commander
+    kronagent.correlation
+# The policy engine, the allowlist and the trajectory guard are the
+# deterministic ceiling. If any of them could call a model, the ceiling would
+# be as promptable as the thing it constrains — and the trajectory guard in
+# particular exists to be un-injectable.
+
+[importlinter:contract:sanitization-is-a-leaf]
+name = Sanitization depends on nothing that acts
+type = forbidden
+source_modules =
+    kronagent.sanitization
+forbidden_modules =
+    kronagent.containment
+    kronagent.policy
+    kronagent.llm
+# Masking and injection defence run on the boundary between untrusted telemetry
+# and the model. A cycle back into policy or containment would mean the code
+# that decides what is safe to send also has a route to acting on it.
