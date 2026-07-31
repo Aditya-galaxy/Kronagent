@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os
 import json
-from typing import Literal, Any
+from typing import Any, Literal, Optional
 from pydantic import BaseModel
 
 from fastapi import FastAPI, HTTPException, status, Request
@@ -666,3 +666,260 @@ async def slack_interactive(request: Request) -> dict[str, Any]:
         "text": f"Kronagent Approval Request Updated: {status_text}",
         "blocks": updated_blocks
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════ #
+# Cloud connections
+#
+# The endpoints a customer's onboarding actually runs through: mint an External
+# ID, hand them a CloudFormation link, record the role their stack produced,
+# and verify it works.
+#
+# Two rules govern everything below.
+#
+#   1. The External ID is a secret and is NEVER returned by a read endpoint.
+#      It appears in exactly one place — inside the rendered template, which is
+#      the thing the customer has to install. Anywhere else it is redacted,
+#      because a role ARN is not secret (it shows up in the customer's own
+#      CloudTrail) and the pair is enough to assume their role.
+#
+#   2. Granting containment is at least as consequential as promoting an action
+#      class to auto-execute, so it takes the same PROMOTE permission and is
+#      written to the same hash-chained audit log.
+# ═══════════════════════════════════════════════════════════════════════════ #
+
+from .connect import (  # noqa: E402 - grouped with the endpoints that use it
+    ConnectionStore,
+    CredentialBroker,
+    Grant,
+    kronagent_account_id,
+    preflight,
+    render_template,
+)
+
+connection_store = ConnectionStore(settings.connection_store_path)
+credential_broker = CredentialBroker()
+
+
+def _public_connection(conn) -> dict[str, Any]:
+    """A connection as it may safely leave the process.
+
+    Deliberately constructs the response field by field rather than dumping the
+    dataclass and popping the secret. A denylist breaks silently the day someone
+    adds a second sensitive field; an allowlist fails closed.
+    """
+    return {
+        "tenant_id": conn.tenant_id,
+        "account_id": conn.account_id,
+        "region": conn.region,
+        "state": conn.state.value,
+        "observe_role_arn": conn.observe_role_arn,
+        "contain_role_arn": conn.contain_role_arn,
+        "can_contain": conn.can_contain,
+        "missing_permissions": list(conn.missing_permissions),
+        "last_verified": conn.last_verified.isoformat() if conn.last_verified else None,
+        # Enough for an operator to confirm the customer pasted the right value,
+        # without the response itself being a credential.
+        "external_id_hint": conn.external_id[-6:] if conn.external_id else "",
+    }
+
+
+class ConnectRequest(BaseModel):
+    tenant_id: str
+    account_id: str
+    region: str
+    operator_id: Optional[str] = None
+    token: Optional[str] = None
+
+
+class RecordRoleRequest(BaseModel):
+    grant: Literal["observe", "contain"]
+    role_arn: str
+    operator_id: Optional[str] = None
+    token: Optional[str] = None
+
+
+class VerifyRequest(BaseModel):
+    grant: Literal["observe", "contain"] = "observe"
+    operator_id: Optional[str] = None
+    token: Optional[str] = None
+
+
+async def _require(permission, req, tenant_id: str, command: str, **extra):
+    """Authorise, and audit the refusal if it fails.
+
+    A denied attempt to connect or disconnect a cloud account is exactly the
+    kind of thing an incident review needs, so it is recorded before the 403.
+    """
+    audit = get_audit_log(tenant_id)
+    try:
+        return resolve_actor(
+            registry_path=settings.operator_registry_path,
+            required=permission,
+            # `by` is what unauthenticated mode records as a self-asserted
+            # actor; `operator_id` is what authenticated mode authenticates.
+            # Passing both means the same endpoint works in a local single
+            # -operator install and in an enforced-registry deployment, with the
+            # audit record honestly marked identity_verified either way.
+            by=req.operator_id,
+            operator_id=req.operator_id,
+            token=req.token,
+            oidc_issuer=settings.oidc_issuer,
+            oidc_audience=settings.oidc_audience,
+            oidc_jwks_uri=settings.oidc_jwks_uri,
+            oidc_verify_signature=settings.oidc_verify_signature,
+            oidc_roles_claim=settings.oidc_roles_claim,
+        )
+    except AuthorizationError as exc:
+        await audit.record(AuditRecord(
+            finding_id="_governance", stage="access_denied",
+            payload={"command": command, "required": permission.value,
+                     "tenant_id": tenant_id, "operator_id": req.operator_id,
+                     "error": str(exc), **extra},
+        ))
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+@app.get("/api/connections")
+async def list_connections() -> dict[str, Any]:
+    """Every connected tenant. External IDs are redacted."""
+    return {"connections": [_public_connection(c) for c in connection_store.list()]}
+
+
+@app.get("/api/connections/{tenant_id}")
+async def get_connection(tenant_id: str) -> dict[str, Any]:
+    conn = connection_store.get(tenant_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail=f"no connection for tenant '{tenant_id}'")
+    return _public_connection(conn)
+
+
+@app.post("/api/connections", status_code=201)
+async def create_connection(req: ConnectRequest) -> dict[str, Any]:
+    """Begin onboarding: mint an External ID and return the install links.
+
+    PROMOTE, not APPROVE. Creating a connection is what makes it possible for
+    this platform to touch an account at all — governance, not operations.
+    """
+    actor = await _require(Permission.PROMOTE, req, req.tenant_id, "web_connect_create",
+                           account_id=req.account_id)
+    try:
+        conn = connection_store.create(
+            tenant_id=req.tenant_id, account_id=req.account_id, region=req.region)
+    except ValueError as exc:
+        # Both a duplicate tenant and a malformed account id or region surface
+        # as ValueError, and they are not the same failure: one means "you
+        # already did this", the other means "this input is wrong". Returning
+        # 409 for both told a caller with a typo'd account id that they were
+        # already connected, which is a confusing lie.
+        already = "already connected" in str(exc)
+        raise HTTPException(status_code=409 if already else 400, detail=str(exc))
+
+    await get_audit_log(req.tenant_id).record(AuditRecord(
+        finding_id="_governance", stage="connection_created",
+        payload={"tenant_id": conn.tenant_id, "account_id": conn.account_id,
+                 "region": conn.region, "by": getattr(actor, "operator_id", req.operator_id),
+                 # The External ID itself is never audited — an audit log is
+                 # exportable to a customer's SIEM, and this one is a credential.
+                 "external_id_hint": conn.external_id[-6:]},
+    ))
+    return {
+        **_public_connection(conn),
+        "next_step": "Install the observe stack, then POST the resulting role ARN "
+                     "to /api/connections/{tenant_id}/role",
+    }
+
+
+@app.get("/api/connections/{tenant_id}/template/{grant}")
+async def connection_template(tenant_id: str, grant: str) -> dict[str, Any]:
+    """The CloudFormation template for one grant.
+
+    This is the single place the External ID legitimately appears: it has to,
+    because the customer's trust policy is built from it.
+    """
+    conn = connection_store.get(tenant_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail=f"no connection for tenant '{tenant_id}'")
+    try:
+        g = Grant(grant)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"grant must be observe or contain, got '{grant}'")
+
+    account = kronagent_account_id()
+    if not account:
+        raise HTTPException(
+            status_code=503,
+            detail="KRONAGENT_AWS_ACCOUNT_ID is not configured — a template "
+                   "without it would produce a role nobody can assume",
+        )
+    return {
+        "grant": g.value,
+        "template": render_template(conn, g, kronagent_account_id=account,
+                                    quarantine_nacl_id=settings.quarantine_nacl_id
+                                                       or "QUARANTINE_NACL_ID"),
+    }
+
+
+@app.post("/api/connections/{tenant_id}/role")
+async def record_connection_role(tenant_id: str, req: RecordRoleRequest) -> dict[str, Any]:
+    """Attach the role ARN the customer's stack produced."""
+    g = Grant(req.grant)
+    actor = await _require(Permission.PROMOTE, req, tenant_id, "web_connect_record_role",
+                           grant=g.value, role_arn=req.role_arn)
+    try:
+        conn = connection_store.record_role(tenant_id, g, req.role_arn)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    await get_audit_log(tenant_id).record(AuditRecord(
+        finding_id="_governance",
+        # Granting containment is the moment this platform becomes able to
+        # change a customer's infrastructure. It gets its own stage name so it
+        # is greppable in an audit export.
+        stage="containment_granted" if g is Grant.CONTAIN else "observe_granted",
+        payload={"tenant_id": tenant_id, "grant": g.value, "role_arn": req.role_arn,
+                 "by": getattr(actor, "operator_id", req.operator_id)},
+    ))
+    return _public_connection(conn)
+
+
+@app.post("/api/connections/{tenant_id}/verify")
+async def verify_connection(tenant_id: str, req: VerifyRequest) -> dict[str, Any]:
+    """Assume the role and probe it, then record what came back."""
+    conn = connection_store.get(tenant_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail=f"no connection for tenant '{tenant_id}'")
+
+    result = preflight(conn, credential_broker, Grant(req.grant))
+    conn = connection_store.record_preflight(tenant_id, result)
+
+    await get_audit_log(tenant_id).record(AuditRecord(
+        finding_id="_governance", stage="connection_verified",
+        payload={"tenant_id": tenant_id, "grant": req.grant, "state": conn.state.value,
+                 "missing": list(result.missing), "error": result.error},
+    ))
+    return {**_public_connection(conn), "ok": result.ok, "error": result.error}
+
+
+@app.delete("/api/connections/{tenant_id}")
+async def delete_connection(tenant_id: str, req: VerifyRequest) -> dict[str, Any]:
+    """Forget a tenant's connection.
+
+    Does not touch the customer's account — their stack is theirs to delete.
+    This only stops Kronagent from trying, and the audit record says so, since
+    "disconnected" and "revoked" are different claims.
+    """
+    actor = await _require(Permission.PROMOTE, req, tenant_id, "web_connect_delete")
+    existed = connection_store.delete(tenant_id)
+    if not existed:
+        raise HTTPException(status_code=404, detail=f"no connection for tenant '{tenant_id}'")
+
+    await get_audit_log(tenant_id).record(AuditRecord(
+        finding_id="_governance", stage="connection_deleted",
+        payload={"tenant_id": tenant_id, "by": getattr(actor, "operator_id", req.operator_id),
+                 "note": "Kronagent will no longer attempt to assume this role. "
+                         "The customer's CloudFormation stack is unaffected and "
+                         "should be deleted separately to revoke access."},
+    ))
+    credential_broker.invalidate(tenant_id)
+    return {"deleted": True, "tenant_id": tenant_id}
