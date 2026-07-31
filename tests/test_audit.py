@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 
-import pytest
 
 from kronagent.audit import AuditLog
 from kronagent.schemas import AuditRecord

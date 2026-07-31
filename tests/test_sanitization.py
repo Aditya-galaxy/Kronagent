@@ -122,7 +122,6 @@ def test_sanitize_finding_e2e() -> None:
 @pytest.mark.asyncio
 async def test_triage_engine_preserves_target_but_sanitizes_llm_prompt() -> None:
     from kronagent.triage import TriageEngine
-    from kronagent.schemas import TriageVerdict
     
     # Define a mock LLM that captures the prompt sent to it.
     captured_prompts = []

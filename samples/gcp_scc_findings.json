@@ -1,0 +1,42 @@
+[
+  {
+    "finding": {
+      "name": "organizations/482910371625/sources/1902847361029384756/findings/kronagentgcpsakeyexfil0001",
+      "resourceName": "//iam.googleapis.com/projects/kronagent-demo/serviceAccounts/exfil-sa@kronagent-demo.iam.gserviceaccount.com/keys/a91f3c7d2e8b4056",
+      "category": "Exfiltration: Service Account Key Created",
+      "severity": "CRITICAL",
+      "eventTime": "2026-07-28T02:18:41.203Z",
+      "description": "A new user-managed service account key was created for exfil-sa and immediately used from an unrecognised network to read Cloud Storage objects.",
+      "sourceProperties": {
+        "callerIp": "185.220.101.7",
+        "serviceAccountEmail": "exfil-sa@kronagent-demo.iam.gserviceaccount.com"
+      }
+    }
+  },
+  {
+    "finding": {
+      "name": "organizations/482910371625/sources/1902847361029384756/findings/kronagentgcpcryptomine0002",
+      "resourceName": "//compute.googleapis.com/projects/kronagent-demo/zones/us-central1-a/instances/miner-vm-02",
+      "category": "Execution: Cryptocurrency Mining",
+      "severity": "HIGH",
+      "eventTime": "2026-07-28T02:29:06.884Z",
+      "description": "Sustained CPU saturation on miner-vm-02 with outbound connections to known mining pool endpoints.",
+      "sourceProperties": {
+        "callerIp": "45.133.1.90"
+      }
+    }
+  },
+  {
+    "finding": {
+      "name": "organizations/482910371625/sources/1902847361029384756/findings/kronagentgcpiamgrant0003",
+      "resourceName": "//iam.googleapis.com/projects/kronagent-demo/serviceAccounts/build-runner@kronagent-demo.iam.gserviceaccount.com",
+      "category": "Persistence: IAM Anomalous Grant",
+      "severity": "MEDIUM",
+      "eventTime": "2026-07-28T02:44:19.517Z",
+      "description": "The service account build-runner was granted roles/owner outside the normal change window.",
+      "sourceProperties": {
+        "callerIp": "198.51.100.23"
+      }
+    }
+  }
+]

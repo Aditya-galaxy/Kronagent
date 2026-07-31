@@ -2,7 +2,6 @@ import pytest
 from kronagent.model import Finding, ResourceRef
 from kronagent.schemas import ActionClass, ProposedAction, PolicyDecision
 from kronagent.providers.gcp import (
-    PROVIDER,
     normalize_gcp_scc,
     plan_gcp_actions,
     GcpContainmentAdapter

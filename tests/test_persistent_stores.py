@@ -4,10 +4,8 @@ Unit tests for persistent SQLite stores for Campaign Memory and the Approval Sto
 
 from __future__ import annotations
 
-import os
-import sqlite3
 import pytest
-from kronagent.correlation import CorrelationMemory, FindingSummary
+from kronagent.correlation import CorrelationMemory
 from kronagent.approvals import ApprovalStore, ApprovalRequest
 from kronagent.model import Finding, ResourceRef
 from kronagent.schemas import ActionClass

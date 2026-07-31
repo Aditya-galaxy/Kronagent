@@ -12,7 +12,6 @@ from __future__ import annotations
 import pytest
 
 from kronagent.commander import (
-    IncidentAssessment,
     IncidentCommanderAgent,
     _fmt_correlation,
     _fmt_intel,

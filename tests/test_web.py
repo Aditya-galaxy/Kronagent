@@ -15,7 +15,7 @@ from kronagent.web import app
 from kronagent.approvals import ApprovalStore, ApprovalRequest
 from kronagent.allowlist import AllowlistStore
 from kronagent.audit import AuditLog
-from kronagent.schemas import ActionClass, AuditRecord
+from kronagent.schemas import ActionClass
 
 
 @pytest.fixture

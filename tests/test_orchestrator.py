@@ -11,7 +11,6 @@ import asyncio
 import json
 from typing import Callable
 
-import pytest
 
 from kronagent.approvals import ApprovalStore
 from kronagent.audit import AuditLog
@@ -270,7 +269,6 @@ async def test_error_in_triage_is_caught_audited_and_still_acked(settings) -> No
 
 async def test_error_on_one_finding_does_not_block_the_next(settings) -> None:
     good_verdict = _verdict("f-good", actionable=False)
-    good_triage = FakeTriageEngine(good_verdict, candidates=[])
 
     class MixedTriage:
         def __init__(self) -> None:

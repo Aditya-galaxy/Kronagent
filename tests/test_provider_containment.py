@@ -4,6 +4,7 @@ Unit and integration tests for AWS and Kubernetes live containment execution pat
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from unittest.mock import MagicMock, patch
 
@@ -14,10 +15,26 @@ from kronagent.providers.k8s import K8sContainmentAdapter
 from kronagent.schemas import ActionClass, ProposedAction
 
 
+def _installed(module: str) -> bool:
+    try:
+        return importlib.util.find_spec(module) is not None
+    except (ModuleNotFoundError, ImportError, ValueError):
+        return False
+
+
+# unittest.mock.patch has to import a module before it can patch it, so these
+# tests need the real SDK present even though every call is mocked. The core
+# install ships without the cloud SDKs on purpose; skip rather than fail, and
+# let the all-extras CI job be the place these actually run.
+requires_boto3 = pytest.mark.skipif(not _installed("boto3"), reason="needs the [aws] extra")
+requires_k8s = pytest.mark.skipif(not _installed("kubernetes"), reason="needs the [k8s] extra")
+
+
 # --------------------------------------------------------------------------- #
 # AWS / boto3 mocks
 # --------------------------------------------------------------------------- #
 
+@requires_boto3
 @patch("boto3.client")
 def test_aws_block_ip_success(mock_boto_client) -> None:
     mock_ec2 = MagicMock()
@@ -68,6 +85,7 @@ def test_aws_block_ip_success(mock_boto_client) -> None:
     )
 
 
+@requires_boto3
 @patch("boto3.client")
 def test_aws_revoke_role_sessions_success(mock_boto_client) -> None:
     mock_iam = MagicMock()
@@ -101,6 +119,7 @@ def test_aws_revoke_role_sessions_success(mock_boto_client) -> None:
 # Kubernetes
 # --------------------------------------------------------------------------- #
 
+@requires_k8s
 @patch("kubernetes.config.load_kube_config")
 def test_k8s_isolate_pod_success(mock_load_config) -> None:
     mock_core = MagicMock()
