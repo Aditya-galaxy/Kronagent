@@ -45,8 +45,19 @@ jobs:
         run: |
           python - <<'EOF'
           import importlib.util, sys
+
+          def present(name: str) -> bool:
+              # find_spec raises ModuleNotFoundError for a dotted name whose
+              # PARENT is missing, rather than returning None — so the naive
+              # version of this check failed precisely when the SDK was absent,
+              # which is the state it exists to confirm.
+              try:
+                  return importlib.util.find_spec(name) is not None
+              except (ModuleNotFoundError, ImportError, ValueError):
+                  return False
+
           leaked = [m for m in ("boto3", "kubernetes", "azure", "google.cloud.compute")
-                    if importlib.util.find_spec(m) is not None]
+                    if present(m)]
           if leaked:
               sys.exit(f"cloud SDKs present in a core install: {leaked}")
           print("clean: no cloud SDKs installed")
