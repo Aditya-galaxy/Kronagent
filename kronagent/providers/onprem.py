@@ -42,6 +42,7 @@ agent a shell on every box.
 from __future__ import annotations
 
 import asyncio
+import urllib.parse
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -246,12 +247,41 @@ def plan_onprem_actions(finding: Finding) -> list[ProposedAction]:
 # fails loudly rather than silently doing nothing.
 # --------------------------------------------------------------------------- #
 
+_ALLOWED_CONTROL_PLANE_SCHEMES = frozenset({"http", "https"})
+
+
+def _validated_control_plane_url(raw: str) -> str:
+    """Accept only an http(s) control-plane URL, and say so at construction.
+
+    urllib honours whatever scheme it is handed. Left unchecked, a control
+    plane configured as `file:///etc/shadow` would be opened as a local file
+    and its contents treated as a containment response — a config-to-file-read
+    primitive inside the component that holds the most privilege. `ftp://` and
+    `gopher://` are equally accepted by urllib and equally unintended.
+
+    The value is operator-supplied rather than attacker-supplied, so this is
+    defence in depth, not a patched exploit. It is validated here, at
+    construction, so a typo fails at startup with a clear message instead of
+    during the incident where containment is first attempted.
+    """
+    url = (raw or "").strip().rstrip("/")
+    if not url:
+        return ""                      # unset is legal: plan() works, perform() refuses
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in _ALLOWED_CONTROL_PLANE_SCHEMES:
+        raise ValueError(
+            f"KRONAGENT_ONPREM_CONTROL_PLANE_URL must use http or https, got "
+            f"{scheme or 'no scheme'!r} in {url!r}"
+        )
+    return url
+
+
 class OnPremContainmentAdapter:
     provider = PROVIDER
 
     def __init__(self, *, control_plane_url: str = "", quarantine_vlan: str = "",
                  request_timeout: float = 15.0) -> None:
-        self._url = control_plane_url.rstrip("/")
+        self._url = _validated_control_plane_url(control_plane_url)
         self._vlan = quarantine_vlan
         self._timeout = request_timeout
 
@@ -310,14 +340,20 @@ class OnPremContainmentAdapter:
         import urllib.request
 
         path, body, rollback, detail = self._request_for(action)
-        req = urllib.request.Request(
-            f"{self._url}{path}",
+        target = f"{self._url}{path}"
+        # Re-checked here as well as at construction: _url is the only part of
+        # this request that comes from outside the code, and this is the last
+        # point before a privileged network call.
+        if urllib.parse.urlparse(target).scheme.lower() not in _ALLOWED_CONTROL_PLANE_SCHEMES:
+            raise RuntimeError(f"refusing non-http(s) control-plane URL: {target!r}")
+        req = urllib.request.Request(  # noqa: S310 - scheme validated above
+            target,
             data=json.dumps(body).encode(),
             method="POST",
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:  # noqa: S310 - scheme validated at construction and immediately above
                 if resp.status >= 300:
                     raise RuntimeError(f"control plane returned HTTP {resp.status}")
         except urllib.error.HTTPError as exc:
