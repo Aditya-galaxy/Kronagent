@@ -7,12 +7,23 @@
 kronagent_audit.jsonl
 kronagent_approvals.json
 kronagent_allowlist.json
+kronagent_trajectory_halt.json
 *.jsonl
 # Demo scratch state (demo_trajectory.py writes these; never real runtime data)
 kronagent_trajectory_demo*.json
 
 # Presenter notes — kept local, not part of the repo
 DEMO_SCRIPT.md
+
+# Commercial planning and candid self-assessment — kept local. This repo is
+# public. Ship dates, competitive positioning, monetisation strategy and an
+# itemised list of where the product is weak are useful to a competitor and to
+# nobody else. kronagent_next_steps.md additionally documented open defects
+# with reproduction detail, which is a vulnerability disclosure we did not
+# intend to make.
+kronagent_product_roadmap.md
+research.md
+kronagent_next_steps.md
 *.pem
 *.db
 
