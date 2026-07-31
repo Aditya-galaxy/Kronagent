@@ -129,19 +129,19 @@ jobs:
 
       - name: Image starts and serves /api/status
         run: |
-          docker run -d --name k -p 8000:8000 kronagent:ci
+          docker run -d --name kronagent-ci -p 8000:8000 kronagent:ci
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/api/status >/dev/null 2>&1; then
               echo "console answered after ${i}s"
               curl -sS http://127.0.0.1:8000/api/status
-              docker rm -f k >/dev/null
+              docker rm -f kronagent-ci >/dev/null
               exit 0
             fi
             sleep 1
           done
           echo "console never answered:"
-          docker logs k
-          docker rm -f k >/dev/null
+          docker logs kronagent-ci
+          docker rm -f kronagent-ci >/dev/null
           exit 1
 
       - name: Dry-run is the default posture
