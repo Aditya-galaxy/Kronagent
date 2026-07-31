@@ -109,17 +109,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
-
       - name: Build image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          load: true
-          tags: kronagent:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        # Plain `docker build`, deliberately, rather than buildx via
+        # setup-buildx-action. The docker-container driver has to pull
+        # moby/buildkit from Docker Hub before it can build anything, and
+        # GitHub's runners share source IPs against Docker Hub's anonymous
+        # rate limit. On 2026-07-31 that step failed on main with
+        # `registry-1.docker.io: context deadline exceeded` after every test
+        # job had passed — an infrastructure flake reported as a build failure.
+        #
+        # The daemon's built-in BuildKit needs no such pull, which removes one
+        # of the two Docker Hub round-trips. The other — the python:3.13-slim
+        # base image — is unavoidable, so the build is retried with backoff.
+        # Losing `cache-to: type=gha` costs roughly 30s on a cold build and is
+        # worth it to stop a green test suite being reported as a red build.
+        run: |
+          for attempt in 1 2 3; do
+            if docker build --tag kronagent:ci .; then
+              echo "built on attempt $attempt"
+              exit 0
+            fi
+            echo "build attempt $attempt failed; retrying in $((attempt * 20))s"
+            sleep $((attempt * 20))
+          done
+          echo "image build failed three times — not a flake"
+          exit 1
 
       - name: Image runs as non-root
         run: |
