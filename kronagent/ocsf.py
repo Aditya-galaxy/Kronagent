@@ -282,7 +282,12 @@ def to_ocsf_event(audit_line: dict[str, Any]) -> Optional[dict[str, Any]]:
             },
             "compliance": {
                 "control": "Access Control policy change",
-                "desc": f"Allowlist change: {decision} of {action_class} by {by}. Reason: {reason}",
+                # Not every governance decision is about one class — a periodic
+                # review covers the whole allowlist — so the subject is omitted
+                # rather than exported as an empty string.
+                "desc": (f"Allowlist change: {decision}"
+                         f"{f' of {action_class}' if action_class else ''} by {by}. "
+                         f"Reason: {reason}"),
                 "status": "Success"
             },
             "actor": {
