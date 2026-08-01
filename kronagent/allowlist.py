@@ -69,7 +69,9 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AliasChoices, BaseModel, ConfigDict, Field, ValidationError, model_validator,
+)
 
 from .audit import AuditLog
 from .schemas import ActionClass, AuditRecord, utcnow_iso
@@ -223,7 +225,7 @@ class AllowlistStore:
             return False
         try:
             entry = AllowlistEntry.model_validate(raw)
-        except Exception:
+        except ValidationError:
             return False  # unreadable entry grants nothing
         return not entry.is_expired(now)
 
@@ -235,7 +237,9 @@ class AllowlistStore:
         for value in self._read_all().values():
             try:
                 entries.append(AllowlistEntry.model_validate(value))
-            except Exception:
+            except ValidationError:
+                # A malformed entry grants nothing (is_allowed refuses it too),
+                # so skipping it here is safe rather than convenient.
                 continue
         return sorted(entries, key=lambda e: e.action_class)
 
