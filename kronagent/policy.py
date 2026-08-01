@@ -17,14 +17,19 @@ Decision procedure for each proposed action:
   3. Look up the action class's intrinsic properties (reversible?, blast radius).
   4. An action is AUTO_ELIGIBLE iff it is reversible AND single-resource AND
      not in the intrinsically-destructive set.
-  5. It actually auto-executes iff it is AUTO_ELIGIBLE **and** its class is in
-     the AllowlistStore (earn-trust).
+  5. It actually auto-executes iff it is AUTO_ELIGIBLE **and** its class has a
+     live (unexpired) entry in the AllowlistStore (earn-trust).
   6. Otherwise -> requires_approval.
 
 The allowlist is the earn-trust dial: it starts empty (everything needs a
 human), and operators promote one action class at a time — via promote.py,
 never a direct edit — as it proves safe. Every promotion/demotion is written
 to the hash-chained audit log with who did it and why.
+
+The dial turns back on its own, too. A promotion may carry a TTL, and step 5
+reads through `is_allowed()`, which refuses an entry whose TTL has lapsed. So
+expiry demotes a class at the gate on the very next decision — nothing here
+waits on a sweep, a cron, or a restart to withdraw autonomy.
 """
 # SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
 # Copyright (c) 2026 Aditya Kumar, trading as Kronagent · https://kronagent.com

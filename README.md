@@ -22,6 +22,18 @@ hard part. Kronagent's answer is **earn-trust, graduated autonomy**:
   Every containment action requires human approval until an operator
   explicitly promotes it — and that promotion is itself audited (who, when,
   why).
+- **Trust is re-earned, not inherited.** A promotion can carry a TTL
+  (`--expires-in 90d`) and names an **owner** — the person accountable for it
+  now, asked to renew it, and reassignable as people change teams (distinct
+  from the immutable record of who promoted it and why). When the TTL lapses
+  the class routes back to human approval, and the lapse is recorded in the
+  audit chain like any other governance decision. The expiry, not the review,
+  is what does the work: **a review fails open — silence reads as approval —
+  while an expiry fails closed**, so inattention withdraws autonomy instead of
+  extending it. (Badge permissions on regulated sites are built the same way:
+  an owner and an expiry, and it's the expiry that carries the weight.)
+  `promote.py review` is the prompt, not the control — it prints each entry
+  with its owner, original reason, and whether it has ever actually fired.
 - **The policy engine is the hard ceiling, not a suggestion.** Actions are
   classified by reversibility and blast radius. Destructive or wide-blast
   actions (terminate an instance, delete a pod, scale a deployment to zero)
@@ -114,6 +126,7 @@ python3 run_slice.py                                   # replay both providers' 
 python3 run_slice.py kubernetes samples/k8s_audit_events.json   # replay one provider
 
 python3 promote.py list                                 # inspect the auto-execute allowlist
+python3 promote.py review --by alice                    # periodic re-earn-it review (--strict for cron)
 python3 approve.py list                                 # inspect pending human approvals
 python3 run_compliance_report.py                        # generate EU AI Act Article 12/14 report
 python3 run_compliance_report.py --markdown-output rep.md # export a styled Markdown manifest
@@ -181,7 +194,7 @@ export KRONAGENT_KUBECONFIG=/path/to/kubeconfig # required for Kubernetes contai
 export KRONAGENT_SQS_QUEUE_URL=https://sqs...   # your real GuardDuty -> EventBridge -> SQS queue
 ```
 
-Only action classes present in the (audited, `promote.py`-managed) allowlist — and classified reversible/single-resource by the policy engine — will ever execute unattended. Everything else routes to `approve.py` regardless of `KRONAGENT_DRY_RUN`. Persistent storage can be enabled by specifying `KRONAGENT_DB_PATH` pointing to a SQLite database file, transitioning the approvals queue and correlation memory from file-based/in-memory scopes. See [`deploy/README.md`](deploy/README.md) for the AWS IAM policy and SQS/EventBridge wiring.
+Only action classes present *and unexpired* in the (audited, `promote.py`-managed) allowlist — and classified reversible/single-resource by the policy engine — will ever execute unattended. Expiry is enforced by the same read the policy engine makes on every decision, so a lapsed promotion stops granting autonomy immediately, whether or not anything has swept the store; the sweep only writes the lapse into the audit chain. Run `promote.py review --strict` on a schedule to fail loudly when entries need a decision. Everything else routes to `approve.py` regardless of `KRONAGENT_DRY_RUN`. Persistent storage can be enabled by specifying `KRONAGENT_DB_PATH` pointing to a SQLite database file, transitioning the approvals queue and correlation memory from file-based/in-memory scopes. See [`deploy/README.md`](deploy/README.md) for the AWS IAM policy and SQS/EventBridge wiring.
 
 ---
 
@@ -205,7 +218,7 @@ kronagent/
   forensics.py         Forensics Agent (evidence + chain of custody)
   policy.py            graduated-autonomy decision engine
   trajectory.py        behavioral-trajectory guard (automatic kill switch)
-  allowlist.py         audited, live-reloadable earn-trust store
+  allowlist.py         audited, live-reloadable earn-trust store (TTL + usage tracking)
   containment.py       provider-agnostic execution dispatch
   approvals.py         human approval workflow (supports SQLite/JSON)
   audit.py             hash-chained, tamper-evident audit log
@@ -248,7 +261,7 @@ python3 -m pip install -r requirements-dev.txt
 python3 -m pytest -q
 ```
 
-338 fully offline, deterministic unit and integration tests passing cleanly. Coverage highlights: the policy engine's safety ceiling (destructive actions proven to never auto-execute, even if allowlisted), the audit log's tamper-evidence (mutation-tested, not just asserted), the behavioral-trajectory guard (scope integrity, runaway rate, and latching — all with injected clocks rather than sleeps), a **cross-provider scope invariant** asserting that every planned action, for every provider, targets a resource its finding actually implicates (mutation-tested against a real defect this caught in the GCP planner), the approval-provider round-trip, forensics-before-containment ordering (mutation-tested), live ingestion against a real SQS server, SQLite-backed storage persistence, and EU AI Act compliance report generation.
+495 fully offline, deterministic unit and integration tests passing cleanly. Coverage highlights: the policy engine's safety ceiling (destructive actions proven to never auto-execute, even if allowlisted), the audit log's tamper-evidence (mutation-tested, not just asserted), the behavioral-trajectory guard (scope integrity, runaway rate, and latching — all with injected clocks rather than sleeps), a **cross-provider scope invariant** asserting that every planned action, for every provider, targets a resource its finding actually implicates (mutation-tested against a real defect this caught in the GCP planner), the approval-provider round-trip, forensics-before-containment ordering (mutation-tested), live ingestion against a real SQS server, SQLite-backed storage persistence, and EU AI Act compliance report generation.
 
 ---
 
@@ -271,7 +284,7 @@ This is a fully functional, enterprise-ready vertical slice:
 - **Behavioral-Trajectory Guard**: A deterministic automatic kill switch over Kronagent's *own* action stream — scope-integrity enforcement (an action may only target a resource its finding implicates) plus a runaway-rate limiter that latches a platform-wide halt. The halt is **persisted**, so it survives a process restart rather than being silently released by one, and is released only by an audited, admin-gated `halt.py clear` — which a running orchestrator observes immediately, with no restart.
 - **Enterprise Isolation & Web Console**: Multi-tenant business-unit isolation, single-page Analyst Web Console (`run_console.py`), and OCSF SIEM exporter (`run_siem_export.py`).
 - **Security & Integrity**: Cryptographic agent-to-agent non-repudiation signatures, `Permission.VIEW` REST endpoint access control, target-preservation sanitization, and continuous chaos rollback validation (`run_cloud_drill.py`).
-- **Test Suite**: 338 fully offline, deterministic unit and integration tests passing cleanly.
+- **Test Suite**: 495 fully offline, deterministic unit and integration tests passing cleanly.
 
 ### Live containment execution by provider
 

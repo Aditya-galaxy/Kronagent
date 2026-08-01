@@ -75,6 +75,30 @@ class AuditLog:
             return entry_hash
 
     @staticmethod
+    def read_records(path: str) -> list[dict[str, Any]]:
+        """Every record in the log, oldest first, skipping unparseable lines.
+
+        Tamper-evidence is `verify()`'s job; this is the plain read path for
+        tooling that reports on history — e.g. `promote.py review` asking which
+        allowlist entries lapsed since anyone last looked.
+        """
+        records: list[dict[str, Any]] = []
+        if not os.path.exists(path):
+            return records
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line).get("record")
+                except json.JSONDecodeError:
+                    continue
+                if record:
+                    records.append(record)
+        return records
+
+    @staticmethod
     def verify(path: str) -> tuple[bool, Optional[int]]:
         """Verify the whole chain. Returns (ok, first_broken_line_or_None)."""
         prev = _GENESIS

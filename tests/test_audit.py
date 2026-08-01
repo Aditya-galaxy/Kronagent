@@ -147,3 +147,35 @@ async def test_concurrent_writes_produce_a_valid_chain(tmp_path) -> None:
     assert broken is None
     with open(path) as fh:
         assert sum(1 for l in fh if l.strip()) == 25
+
+
+# --------------------------------------------------------------------------- #
+# read_records — the plain read path for tooling that reports on history
+# (e.g. `promote.py review` asking what lapsed since anyone last looked)
+# --------------------------------------------------------------------------- #
+
+def test_read_records_of_a_missing_log_is_empty(tmp_path) -> None:
+    assert AuditLog.read_records(str(tmp_path / "nope.jsonl")) == []
+
+
+async def test_read_records_returns_records_oldest_first(tmp_path) -> None:
+    path = str(tmp_path / "audit.jsonl")
+    log = AuditLog(path)
+    await log.record(_record(finding_id="f-1"))
+    await log.record(_record(finding_id="f-2", stage="governance"))
+
+    records = AuditLog.read_records(path)
+    assert [r["finding_id"] for r in records] == ["f-1", "f-2"]
+    assert records[1]["stage"] == "governance"
+
+
+async def test_read_records_skips_unparseable_lines(tmp_path) -> None:
+    """A truncated final write shouldn't stop a review from reading the
+    records that are intact. Detecting tampering is verify()'s job."""
+    path = str(tmp_path / "audit.jsonl")
+    log = AuditLog(path)
+    await log.record(_record(finding_id="f-1"))
+    with open(path, "a") as fh:
+        fh.write('{"record": {"finding_id": "trunca\n\n')
+
+    assert [r["finding_id"] for r in AuditLog.read_records(path)] == ["f-1"]

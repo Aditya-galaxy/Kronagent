@@ -10,6 +10,8 @@ table itself is caught.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from kronagent.allowlist import AllowlistStore
@@ -18,6 +20,10 @@ from kronagent.policy import PolicyEngine, _ACTION_PROPERTIES
 from kronagent.schemas import ActionClass, BlastRadius
 
 from .conftest import make_action
+
+
+def _iso(**kwargs) -> str:
+    return (datetime.now(timezone.utc) + timedelta(**kwargs)).isoformat()
 
 # The classes the policy engine itself claims are safe to ever auto-execute
 # (reversible + single-resource + non-destructive). Any class NOT in this set
@@ -138,3 +144,27 @@ def test_allowlist_promotion_takes_effect_without_rebuilding_policy_engine(tmp_p
 
     after = engine.decide(action, severity=8.0)
     assert after.disposition == "auto_execute"
+
+
+def test_expired_allowlist_entry_routes_back_to_approval(tmp_path) -> None:
+    """The earn-trust dial has to turn both ways on its own. An entry whose TTL
+    has lapsed grants nothing — and the policy engine reaches that verdict from
+    the entry itself, with no sweep, cron, or restart in the loop."""
+    settings = Settings(allowlist_store_path=str(tmp_path / "al.json"))
+    allowlist = AllowlistStore(settings.allowlist_store_path)
+    engine = PolicyEngine(settings, allowlist)
+    action = make_action(action_class=ActionClass.CORDON_NODE)
+
+    def _promote(expires_at: str) -> None:
+        allowlist._write_all({"cordon_node": {
+            "action_class": "cordon_node", "added_by": "t", "reason": "t",
+            "added_at": _iso(days=-30), "expires_at": expires_at,
+        }})
+
+    _promote(_iso(days=30))
+    assert engine.decide(action, severity=8.0).disposition == "auto_execute"
+
+    _promote(_iso(days=-1))
+    lapsed = engine.decide(action, severity=8.0)
+    assert lapsed.disposition == "requires_approval"
+    assert "not yet in the earn-trust allowlist" in lapsed.reason
