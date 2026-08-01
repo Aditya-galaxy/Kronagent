@@ -178,12 +178,20 @@ banner "ACT 3 — Earning trust (audited governance, no restart)"
 say "An operator decides 'disable_access_key' has proven safe — it's reversible,"
 say "affects exactly one credential, and it's been reliable. They promote it."
 say "Every promotion is written to the tamper-evident audit log: who, when, why."
-run "$PY" promote.py add disable_access_key --by alice --reason "30 days incident-free; reversible, single-credential blast radius"
+say "It also gets an OWNER and a 90-day clock. A review fails open — silence"
+say "reads as approval — so the clock does the work: this lapses back to human"
+say "approval unless dana actively says yes again."
+run "$PY" promote.py add disable_access_key --by alice --owner dana --expires-in 90d --reason "30 days incident-free; reversible, single-credential blast radius"
 say ""
 say "Now the SAME finding is re-processed. disable_access_key AUTO-executes"
 say "(still dry-run) — while the destructive actions stay gated. The change took"
 say "effect immediately, with no restart."
 run "$PY" run_slice.py aws samples/guardduty_findings.json
+say ""
+say "Six months in, who checks whether the allowlist still makes sense? 'review'"
+say "prints every entry with the reason it was promoted, who promoted it, when it"
+say "lapses, and whether it has actually fired — and records that someone looked."
+run "$PY" promote.py review --by alice
 pause 3
 
 # -------------------------------------------------------------------------- #

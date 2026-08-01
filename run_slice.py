@@ -114,7 +114,9 @@ async def main(replay: list[tuple[str, str]]) -> int:
         trajectory=trajectory,
     )
 
-    allowed = sorted(e.action_class for e in allowlist.list())
+    # active(), not list(): an entry whose TTL has lapsed no longer grants
+    # autonomy, so announcing it at boot would misstate the platform's posture.
+    allowed = sorted(e.action_class for e in allowlist.active())
     _log("BOOT", "=== Kronagent autonomous threat-defense platform starting ===")
     _log("BOOT", f"mode: {'DRY-RUN (no execution)' if settings.dry_run else 'LIVE EXECUTION'}"
                  f" | kill_switch={settings.kill_switch}")

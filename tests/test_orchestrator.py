@@ -12,6 +12,7 @@ import json
 from typing import Callable
 
 
+from kronagent.allowlist import AllowlistStore
 from kronagent.approvals import ApprovalStore
 from kronagent.audit import AuditLog
 from kronagent.containment import ContainmentExecutor
@@ -199,6 +200,66 @@ async def test_auto_execute_does_not_create_an_approval(settings) -> None:
 
     assert approvals.list() == []
     assert acked() == 1
+
+
+async def test_auto_execute_records_that_the_allowlist_entry_fired(settings) -> None:
+    """An entry that never fires is standing authority with no benefit, so the
+    review needs to know which ones actually get used. Recorded on the entry
+    the autonomy came from, not the audit log — the containment record already
+    covers the execution itself."""
+    allowlist = AllowlistStore(settings.allowlist_store_path)
+    audit = AuditLog(settings.audit_log_path)
+    await allowlist.add(ActionClass.ISOLATE_POD, by="alice", reason="r", audit=audit)
+
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+    orch, _ = _orchestrator(settings, triage, FakePolicyEngine(disposition="auto_execute"))
+    item, _acked = _queued(_finding(finding_id="f-1"))
+
+    await _drain(orch, [item])
+
+    entry = allowlist.list()[0]
+    assert entry.fire_count == 1
+    assert entry.last_fired_at is not None
+
+
+async def test_approval_gated_execution_does_not_count_as_the_entry_firing(settings) -> None:
+    """That action was authorized by a human, not by the entry. Counting it
+    would let an unused promotion look load-bearing."""
+    allowlist = AllowlistStore(settings.allowlist_store_path)
+    audit = AuditLog(settings.audit_log_path)
+    await allowlist.add(ActionClass.ISOLATE_POD, by="alice", reason="r", audit=audit)
+
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+    orch, _ = _orchestrator(settings, triage, FakePolicyEngine(disposition="requires_approval"),
+                            approvals=ApprovalStore(settings.approval_store_path))
+    await _drain(orch, [_queued(_finding(finding_id="f-1"))[0]])
+
+    assert allowlist.list()[0].fire_count == 0
+
+
+async def test_lapsed_allowlist_entry_is_swept_and_audited_during_a_run(settings) -> None:
+    """The expiry lands in the audit chain from the running pipeline, not only
+    when an operator happens to run the CLI — otherwise a deployment nobody
+    logs into would enforce lapses silently, with no record of them."""
+    allowlist = AllowlistStore(settings.allowlist_store_path)
+    allowlist._write_all({"isolate_pod": {
+        "action_class": "isolate_pod", "added_by": "alice", "reason": "expired promotion",
+        "added_at": "2026-01-01T00:00:00+00:00", "expires_at": "2026-02-01T00:00:00+00:00",
+    }})
+
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+    triage = FakeTriageEngine(_verdict("f-1", actionable=True), candidates=[candidate])
+    orch, audit = _orchestrator(settings, triage, FakePolicyEngine(disposition="requires_approval"))
+    await _drain(orch, [_queued(_finding(finding_id="f-1"))[0]])
+
+    records = [json.loads(l)["record"] for l in open(audit._path) if l.strip()]
+    expired = [r for r in records
+               if r["stage"] == "governance" and r["payload"]["decision"] == "allowlist_expired"]
+    assert len(expired) == 1
+    assert expired[0]["payload"]["promotion_reason"] == "expired promotion"
+    assert allowlist.list() == []
 
 
 async def test_blocked_does_not_create_an_approval(settings) -> None:
