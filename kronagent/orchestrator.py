@@ -231,6 +231,18 @@ class Orchestrator:
                 for it in forensics.items:
                     _log("FORENSICS", f"{finding.finding_id}:   {it.kind} custody={it.custody_sha256[:12]}…")
 
+        # 1f. Sweep lapsed allowlist TTLs before any policy decision, so the
+        # audit chain records the expiry ahead of the first decision that
+        # reflects it. The gate itself doesn't depend on this — is_allowed()
+        # already refuses an expired entry — so a store without the sweep
+        # (an older double in a test) is still safe, just less legible.
+        if hasattr(tenant_allowlist, "expire_due"):
+            for lapsed in await tenant_allowlist.expire_due(audit=tenant_audit):
+                _log("GOVERNANCE", f"{lapsed.action_class}: allowlist entry EXPIRED "
+                                   f"(promoted by {lapsed.promoted_by} at {lapsed.promoted_at}, "
+                                   f"owner {lapsed.owner}) — "
+                                   f"this class requires human approval again until renewed")
+
         # 2 + 3. Policy decision and containment, per candidate action.
         guard = self._trajectory
         for action in candidates:
@@ -291,6 +303,14 @@ class Orchestrator:
             await tenant_audit.record(AuditRecord(
                 finding_id=finding.finding_id, stage="containment", payload=outcome.model_dump(),
             ))
+
+            # An allowlist entry only earns its keep when it authorizes
+            # something. Recorded on the attempt, not on success: the standing
+            # authority was exercised either way, and it's the exercising that
+            # review cares about. Approval-gated executions deliberately don't
+            # count — those were authorized by a human, not by the entry.
+            if decision.disposition == "auto_execute" and hasattr(tenant_allowlist, "record_fired"):
+                tenant_allowlist.record_fired(action.action_class)
 
             marker = {
                 "auto_execute": "AUTO",

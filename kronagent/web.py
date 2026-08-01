@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
 from .approvals import ApprovalStore, now_iso
-from .allowlist import AllowlistStore
+from .allowlist import AllowlistStore, DurationError, parse_duration
 from .audit import AuditLog
 from .identity import resolve_actor, Permission, AuthorizationError
 from .containment import ContainmentExecutor
@@ -114,6 +114,20 @@ class PromoteRequest(BaseModel):
     operator_id: str
     token: str
     reason: str
+    # Optional TTL, e.g. "90d" — after it elapses the class routes back to
+    # human approval until an operator renews the promotion. Ignored on demote.
+    expires_in: Optional[str] = None
+    # Who is accountable for the entry and gets asked to renew it. Defaults to
+    # the promoter (and, on a renewal, to the existing owner). Ignored on demote.
+    owner: Optional[str] = None
+
+
+class ReassignRequest(BaseModel):
+    action_class: str
+    operator_id: str
+    token: str
+    reason: str
+    owner: str  # the new accountable owner
 
 
 # --- Core Web Routes ---
@@ -299,11 +313,39 @@ def get_audit_trail(request: Request) -> list[dict[str, Any]]:
 
 @app.get("/api/allowlist")
 def list_allowlist(request: Request) -> list[str]:
-    """Retrieve all promoted autonomous action classes."""
+    """Retrieve the action classes currently granted autonomy.
+
+    Entries whose TTL has lapsed are excluded: they no longer authorize
+    anything, and a console that still showed them as promoted would be
+    describing autonomy the policy engine has already withdrawn. `GET
+    /api/allowlist/review` is where lapsed entries stay visible, because
+    deciding whether to renew one needs to see it.
+    """
     check_view_permission(request)
     tenant_id = resolve_tenant_id(request)
     store = get_allowlist_store(tenant_id)
-    return [entry.action_class for entry in store.list()]
+    return [entry.action_class for entry in store.active()]
+
+
+@app.get("/api/allowlist/review")
+def review_allowlist(request: Request) -> list[dict[str, Any]]:
+    """Every entry with the context a re-earn-it review needs: who promoted it,
+    when, why, when it lapses, and whether it has ever actually fired. Expired
+    and stale entries included and marked — an entry that never fires is
+    standing authority with no benefit, which is precisely what a review is
+    looking for."""
+    check_view_permission(request)
+    tenant_id = resolve_tenant_id(request)
+    store = get_allowlist_store(tenant_id)
+    return [
+        {
+            **entry.model_dump(),
+            "expired": entry.is_expired(),
+            "stale": entry.is_stale(),
+            "never_fired": entry.last_fired_at is None,
+        }
+        for entry in store.list()
+    ]
 
 
 @app.post("/api/allowlist/promote")
@@ -344,14 +386,81 @@ async def promote_allowlist_class(req: PromoteRequest, request: Request) -> dict
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid action class name '{req.action_class}'.")
 
-    await store.add(
+    expires_in = None
+    if req.expires_in:
+        try:
+            expires_in = parse_duration(req.expires_in)
+        except DurationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    entry = await store.add(
         ac,
         by=actor.operator_id,
         reason=req.reason,
         audit=audit_log_resolved,
-        actor_fields=actor.audit_fields()
+        actor_fields=actor.audit_fields(),
+        expires_in=expires_in,
+        owner=req.owner,
     )
-    return {"status": "success", "detail": f"Class {ac.value} successfully promoted."}
+    detail = f"Class {ac.value} successfully promoted."
+    if entry.expires_at:
+        detail += f" Expires {entry.expires_at}; requires renewal after that."
+    return {"status": "success", "detail": detail,
+            "expires_at": entry.expires_at, "owner": entry.owner}
+
+
+@app.post("/api/allowlist/reassign")
+async def reassign_allowlist_owner(req: ReassignRequest, request: Request) -> dict[str, Any]:
+    """Hand an entry to a new accountable owner, leaving the promotion history
+    intact. PROMOTE-gated: moving ownership moves who can renew the entry."""
+    tenant_id = resolve_tenant_id(request)
+    store = get_allowlist_store(tenant_id)
+    audit_log_resolved = get_audit_log(tenant_id)
+
+    try:
+        actor = resolve_actor(
+            registry_path=settings.operator_registry_path,
+            required=Permission.PROMOTE,
+            operator_id=req.operator_id,
+            token=req.token,
+            oidc_issuer=settings.oidc_issuer,
+            oidc_audience=settings.oidc_audience,
+            oidc_jwks_uri=settings.oidc_jwks_uri,
+            oidc_verify_signature=settings.oidc_verify_signature,
+            oidc_roles_claim=settings.oidc_roles_claim,
+        )
+    except AuthorizationError as exc:
+        await audit_log_resolved.record(AuditRecord(
+            finding_id="_governance",
+            stage="access_denied",
+            payload={
+                "command": "web_reassign",
+                "required": "promote",
+                "action_class": req.action_class,
+                "operator_id": req.operator_id,
+                "error": str(exc)
+            }
+        ))
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    try:
+        ac = ActionClass(req.action_class)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid action class name '{req.action_class}'.")
+
+    entry = await store.set_owner(
+        ac,
+        owner=req.owner,
+        by=actor.operator_id,
+        reason=req.reason,
+        audit=audit_log_resolved,
+        actor_fields=actor.audit_fields(),
+    )
+    if entry is None:
+        return {"status": "noop",
+                "detail": f"Class {ac.value} is not on the allowlist; nothing to reassign."}
+    return {"status": "success", "detail": f"Class {ac.value} is now owned by {entry.owner}.",
+            "owner": entry.owner}
 
 
 @app.post("/api/allowlist/demote")

@@ -212,6 +212,101 @@ def test_promote_allowlist_success(test_env) -> None:
     assert "isolate_pod" in [entry.action_class for entry in allowlist.list()]
 
 
+def test_promote_allowlist_with_ttl(test_env) -> None:
+    client, _, allowlist, _ = test_env
+
+    res = client.post(
+        "/api/allowlist/promote",
+        json={
+            "action_class": "isolate_pod",
+            "operator_id": "alice",
+            "token": "secret",
+            "reason": "90-day trial of autonomy",
+            "expires_in": "90d",
+        }
+    )
+    assert res.status_code == 200
+    assert res.json()["expires_at"] is not None
+    assert allowlist.list()[0].expires_at == res.json()["expires_at"]
+
+
+def test_promote_allowlist_rejects_an_unparseable_ttl(test_env) -> None:
+    client, _, allowlist, _ = test_env
+    res = client.post(
+        "/api/allowlist/promote",
+        json={"action_class": "isolate_pod", "operator_id": "alice", "token": "secret",
+              "reason": "r", "expires_in": "90"}
+    )
+    assert res.status_code == 400
+    assert allowlist.list() == []  # nothing promoted on a bad TTL
+
+
+def test_promote_allowlist_with_an_owner(test_env) -> None:
+    client, _, allowlist, _ = test_env
+    res = client.post(
+        "/api/allowlist/promote",
+        json={"action_class": "isolate_pod", "operator_id": "alice", "token": "secret",
+              "reason": "r", "owner": "dana"}
+    )
+    assert res.status_code == 200
+    assert res.json()["owner"] == "dana"
+    entry = allowlist.list()[0]
+    assert (entry.owner, entry.promoted_by) == ("dana", "alice")
+
+
+def test_reassign_allowlist_owner(test_env) -> None:
+    client, _, allowlist, _ = test_env
+    client.post("/api/allowlist/promote",
+                json={"action_class": "isolate_pod", "operator_id": "alice", "token": "secret",
+                      "reason": "30 days incident-free", "owner": "dana"})
+
+    res = client.post(
+        "/api/allowlist/reassign",
+        json={"action_class": "isolate_pod", "operator_id": "alice", "token": "secret",
+              "reason": "dana moved to platform", "owner": "erin"}
+    )
+    assert res.status_code == 200
+    entry = allowlist.list()[0]
+    assert entry.owner == "erin"
+    assert entry.promoted_by == "alice"            # history untouched
+    assert entry.reason == "30 days incident-free"
+
+
+def test_reassign_allowlist_owner_requires_promote_permission(test_env) -> None:
+    client, _, allowlist, _ = test_env
+    client.post("/api/allowlist/promote",
+                json={"action_class": "isolate_pod", "operator_id": "alice", "token": "secret",
+                      "reason": "r", "owner": "dana"})
+
+    # bob is a viewer
+    res = client.post(
+        "/api/allowlist/reassign",
+        json={"action_class": "isolate_pod", "operator_id": "bob", "token": "password",
+              "reason": "r", "owner": "bob"}
+    )
+    assert res.status_code == 403
+    assert allowlist.list()[0].owner == "dana"
+
+
+def test_allowlist_endpoint_omits_lapsed_entries(test_env) -> None:
+    """A console that still listed a lapsed entry as promoted would be
+    describing autonomy the policy engine has already withdrawn."""
+    client, _, allowlist, _ = test_env
+    allowlist._write_all({"isolate_pod": {
+        "action_class": "isolate_pod", "added_by": "alice", "reason": "r",
+        "added_at": "2026-01-01T00:00:00+00:00", "expires_at": "2026-02-01T00:00:00+00:00",
+    }})
+
+    assert client.get("/api/allowlist").json() == []
+
+    review = client.get("/api/allowlist/review").json()
+    assert len(review) == 1
+    assert review[0]["action_class"] == "isolate_pod"
+    assert review[0]["expired"] is True
+    assert review[0]["never_fired"] is True
+    assert review[0]["reason"] == "r"
+
+
 @pytest.mark.asyncio
 async def test_demote_allowlist_success(test_env) -> None:
     client, _, allowlist, audit = test_env
