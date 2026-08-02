@@ -124,6 +124,11 @@ class Settings:
     audit_log_path: str = "kronagent_audit.jsonl"
     approval_store_path: str = "kronagent_approvals.json"
     allowlist_store_path: str = "kronagent_allowlist.json"
+    # How far ahead `promote.py warn-expiring` looks when telling owners their
+    # grant of autonomy is about to lapse. Long enough that renewing is a
+    # considered decision rather than a scramble; the lapse itself is
+    # fail-closed either way, so this only affects notice, never authority.
+    allowlist_warn_within: str = "14d"
     # Tenant cloud connections. Holds External IDs, which are secrets — the
     # store creates this 0600 and re-asserts it on every write.
     connection_store_path: str = "kronagent_connections.json"
@@ -209,6 +214,7 @@ class Settings:
             audit_log_path=os.getenv("KRONAGENT_AUDIT_PATH", "kronagent_audit.jsonl"),
             approval_store_path=approval_path,
             allowlist_store_path=os.getenv("KRONAGENT_ALLOWLIST_PATH", "kronagent_allowlist.json"),
+            allowlist_warn_within=os.getenv("KRONAGENT_ALLOWLIST_WARN_WITHIN", "14d"),
             connection_store_path=os.getenv("KRONAGENT_CONNECTION_PATH", "kronagent_connections.json"),
             operator_registry_path=os.getenv("KRONAGENT_OPERATOR_REGISTRY", ""),
             db_path=db_path,

@@ -259,3 +259,75 @@ async def test_webhook_deny_success(test_env) -> None:
     updated = store.get(req.request_id)
     assert updated.status == "denied"
     assert updated.decided_by == "alice"
+
+
+# --------------------------------------------------------------------------- #
+# Allowlist expiry warnings — deliberately non-interactive
+# --------------------------------------------------------------------------- #
+
+def _expiring_entry(**kwargs):
+    from kronagent.allowlist import AllowlistEntry
+    base = {
+        "action_class": "disable_access_key", "promoted_by": "alice", "owner": "dana",
+        "reason": "30 days incident-free", "promoted_at": "2026-05-01T00:00:00+00:00",
+        "expires_at": "2026-08-11T00:00:00+00:00",
+    }
+    return AllowlistEntry(**{**base, **kwargs})
+
+
+def _card_text(blocks) -> str:
+    parts = []
+    for b in blocks:
+        if "text" in b:
+            parts.append(b["text"].get("text", ""))
+        for f in b.get("fields", []):
+            parts.append(f.get("text", ""))
+    return "\n".join(parts)
+
+
+def test_expiry_warning_card_carries_the_renewal_context() -> None:
+    from kronagent.config import Settings
+    settings = Settings(slack_user_mapping={"U12345": "dana"})
+    text = _card_text(ChatOpsNotifier.build_expiry_warning_blocks(
+        settings, _expiring_entry(), remaining="9d"))
+
+    assert "lapses in *9d*" in text
+    assert "<@U12345>" in text                    # owner @-mentioned
+    assert "30 days incident-free" in text        # why it was promoted
+    assert "promote.py add disable_access_key" in text
+    assert "never* — it has authorized nothing" in text
+
+
+def test_expiry_warning_card_says_doing_nothing_is_safe() -> None:
+    """The message has to reinforce fail-closed, or an owner reads a countdown
+    and assumes something bad happens if they ignore it."""
+    from kronagent.config import Settings
+    text = _card_text(ChatOpsNotifier.build_expiry_warning_blocks(
+        Settings(), _expiring_entry(), remaining="3d"))
+    assert "do nothing" in text
+    assert "requiring human approval" in text
+    assert "Silence is the safe answer" in text
+
+
+def test_expiry_warning_card_has_no_buttons() -> None:
+    """Renewal needs a fresh, audited reason for why the class still deserves
+    autonomy. A one-click renew button is exactly how that gets hollowed out."""
+    from kronagent.config import Settings
+    blocks = ChatOpsNotifier.build_expiry_warning_blocks(
+        Settings(), _expiring_entry(), remaining="9d")
+    assert [b for b in blocks if b.get("type") == "actions"] == []
+
+
+def test_expiry_warning_falls_back_to_the_plain_owner_id() -> None:
+    from kronagent.config import Settings
+    text = _card_text(ChatOpsNotifier.build_expiry_warning_blocks(
+        Settings(slack_user_mapping={"U999": "someone-else"}), _expiring_entry(), remaining="9d"))
+    assert "`dana`" in text
+
+
+def test_expiry_warning_send_is_a_noop_without_slack_configured() -> None:
+    """No token, no post attempt — and False, so the audit record says plainly
+    that nobody was told."""
+    from kronagent.config import Settings
+    assert ChatOpsNotifier.send_expiry_warning(
+        Settings(), _expiring_entry(), remaining="9d") is False
