@@ -135,6 +135,104 @@ class ChatOpsNotifier:
 
         return blocks
 
+    # --- Allowlist expiry warnings -------------------------------------- #
+    #
+    # Deliberately NOT interactive. An approval card gets Approve/Deny buttons
+    # because the decision is yes-or-no on a specific action. Renewing autonomy
+    # is not: it requires a fresh, audited reason for why the class still
+    # deserves it, and a one-click "renew" button is precisely how that
+    # requirement would get hollowed out. So the card carries the command to
+    # run, and the operator types the reason.
+
+    @staticmethod
+    def _mention(settings: Settings, owner: str) -> str:
+        """`<@U123>` if the owner maps to a Slack user, else their plain id.
+        settings.slack_user_mapping is slack_id -> operator_id, so invert it."""
+        for slack_id, operator_id in settings.slack_user_mapping.items():
+            if operator_id == owner:
+                return f"<@{slack_id}>"
+        return f"`{owner}`"
+
+    @classmethod
+    def build_expiry_warning_blocks(
+        cls, settings: Settings, entry: Any, *, remaining: str,
+    ) -> list[dict[str, Any]]:
+        """Slack Block Kit for "this grant of autonomy is about to run out"."""
+        fired = (f"{entry.fire_count}× (last {entry.last_fired_at})"
+                 if entry.last_fired_at else "*never* — it has authorized nothing")
+        return [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (f"⏳ *Kronagent autonomy expiring* — `{entry.action_class}` "
+                             f"lapses in *{remaining}*"),
+                },
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Owner:* {cls._mention(settings, entry.owner)}"},
+                    {"type": "mrkdwn", "text": f"*Expires:* `{entry.expires_at}`"},
+                    {"type": "mrkdwn", "text": f"*Promoted by:* `{entry.promoted_by}`"},
+                    {"type": "mrkdwn", "text": f"*Has fired:* {fired}"},
+                ],
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Promoted because:* _{entry.reason}_",
+                },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        "*If it still applies*, renew it with a current reason:\n"
+                        f"```python3 promote.py add {entry.action_class} --by <you> "
+                        f"--reason \"<why it still applies>\" --expires-in 90d```\n"
+                        "*If it doesn't*, do nothing — it lapses on its own and the class "
+                        "goes back to requiring human approval. Silence is the safe answer here."
+                    ),
+                },
+            },
+        ]
+
+    @classmethod
+    def send_expiry_warning(cls, settings: Settings, entry: Any, *, remaining: str) -> bool:
+        """Post one expiry warning. False when Slack isn't configured or the
+        post fails — the caller records the attempt either way, and the entry
+        lapses regardless, so a False here is a missed courtesy, not a missed
+        control."""
+        if not settings.slack_bot_token or not settings.slack_channel_id:
+            return False
+
+        url = "https://slack.com/api/chat.postMessage"
+        payload = {
+            "channel": settings.slack_channel_id,
+            "text": (f"Kronagent: auto-execute allowlist entry {entry.action_class} "
+                     f"expires in {remaining} (owner {entry.owner})"),
+            "blocks": cls.build_expiry_warning_blocks(settings, entry, remaining=remaining),
+        }
+        req_bytes = json.dumps(payload).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json; charset=utf-8",
+            "Authorization": f"Bearer {settings.slack_bot_token}",
+        }
+        try:
+            http_req = urllib.request.Request(url, data=req_bytes, headers=headers, method="POST")
+            # noqa justified: url is a hardcoded https://slack.com/api literal
+            with urllib.request.urlopen(http_req, timeout=10) as response:  # noqa: S310
+                res_body = json.loads(response.read().decode("utf-8"))
+                if res_body.get("ok"):
+                    return True
+                print(f"[-] Slack API error: {res_body.get('error')}")
+        except Exception as e:
+            print(f"[-] Failed to send Slack expiry warning: {e}")
+        return False
+
     @classmethod
     def send_approval_notification(cls, settings: Settings, req: ApprovalRequest) -> Optional[str]:
         """
