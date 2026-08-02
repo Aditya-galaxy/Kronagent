@@ -74,6 +74,11 @@ class AuditLog:
             self._last_hash = entry_hash
             return entry_hash
 
+    def records(self) -> list[dict[str, Any]]:
+        """This log's records, oldest first. The instance-level counterpart to
+        `read_records`, for callers that already hold the log they wrote to."""
+        return self.read_records(self._path)
+
     @staticmethod
     def read_records(path: str) -> list[dict[str, Any]]:
         """Every record in the log, oldest first, skipping unparseable lines.
