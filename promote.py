@@ -19,6 +19,7 @@ same as an approval decision.
     python3 promote.py remove   disable_access_key --by alice --reason "false-positive rate too high"
     python3 promote.py reassign disable_access_key --to erin --by alice --reason "dana moved to platform"
     python3 promote.py review   --by alice
+    python3 promote.py warn-expiring --within 14d          # for cron; warns owners once each
 
 A promotion only has effect for action classes the policy engine already
 classifies AUTO_ELIGIBLE (reversible, single-resource, non-destructive) — see
@@ -44,7 +45,10 @@ is who is accountable *now* and gets asked at renewal time — reassignable with
 `review` is the prompt, not the control: it prints every entry with its owner,
 the promotion reason, who promoted it, and when it last actually fired, so
 whoever is deciding has the context in hand — and it records that the review
-happened, and who did it.
+happened, and who did it. `warn-expiring` is the same idea pushed rather than
+pulled: run it from cron and each owner is told once, ahead of time, that their
+entry is about to lapse. Neither can keep an entry alive; only an operator
+re-running `add` with a current reason can do that.
 """
 
 from __future__ import annotations
@@ -350,6 +354,64 @@ def cmd_remove(store: AllowlistStore, audit: AuditLog, actor: AuthContext,
     return 0
 
 
+def cmd_warn_expiring(store: AllowlistStore, audit: AuditLog, settings: Settings,
+                      args: argparse.Namespace) -> int:
+    """Tell owners, once, that their grant of autonomy is about to lapse.
+
+    Built for cron. A system action, not an operator one — there is no `--by`,
+    because nobody is deciding anything here; the TTL already decided. If the
+    chat transport is missing or broken the warning still lands in the audit
+    log and on stdout, and the entry still lapses on schedule: the point of
+    fail-closed expiry is that no delivery failure can extend authority.
+    """
+    within = _parse_window(args.within, "--within")
+    now = datetime.now().astimezone()
+
+    if args.dry_run:
+        # Nothing sent, nothing recorded — so a later real run still warns.
+        due = [e for e in store.expiring_within(within, now=now)
+               if (e.action_class, e.expires_at or "") not in store.warned_expiries(audit)]
+        print(f"DRY RUN — {len(due)} entr{'y' if len(due) == 1 else 'ies'} would be warned "
+              f"about (within {args.within}):")
+        for entry in due:
+            print(f"  {entry.action_class:32} owner {entry.owner:16} expires "
+                  f"{_expiry_phrase(entry, now)}")
+        return 0
+
+    notifier = None
+    if settings.slack_bot_token and settings.slack_channel_id:
+        from kronagent.chatops import ChatOpsNotifier
+
+        def _send(entry: AllowlistEntry) -> bool:
+            remaining = _humanize(parse_ts(entry.expires_at) - now)
+            return ChatOpsNotifier.send_expiry_warning(settings, entry, remaining=remaining)
+
+        notifier = _send
+
+    warned = asyncio.run(store.warn_expiring(audit=audit, within=within, notify=notifier, now=now))
+    if not warned:
+        print(f"No allowlist entries expiring within {args.within} that haven't been warned about.")
+        return 0
+
+    print(f"Warned about {len(warned)} expiring entr{'y' if len(warned) == 1 else 'ies'}:")
+    for entry, notified in warned:
+        if notified:
+            delivery = "notified via Slack"
+        elif notifier is None:
+            delivery = "NOT DELIVERED — no chat transport configured"
+        else:
+            delivery = "NOT DELIVERED — Slack send failed (see error above)"
+        print(f"\n  {entry.action_class} — expires {_expiry_phrase(entry, now)}")
+        print(f"      owner {entry.owner} — {delivery}")
+        print(f"      promoted by {entry.promoted_by}: {entry.reason}")
+        print(f"      last fired: {_fired_phrase(entry, now)}")
+        print(f"      renew:  python3 promote.py add {entry.action_class} "
+              f"--by <you> --reason \"<why it still applies>\" --expires-in 90d")
+    print("\nDoing nothing is a valid answer: an unrenewed entry lapses on its own and the "
+          "class goes back to requiring human approval.")
+    return 0
+
+
 def cmd_reassign(store: AllowlistStore, audit: AuditLog, actor: AuthContext,
                  args: argparse.Namespace) -> int:
     ac = _parse_action_class(args.action_class)
@@ -402,6 +464,15 @@ def main() -> int:
     _add_identity(p_rm)
     p_rm.add_argument("--reason", required=True, help="why this class is being demoted (audited)")
 
+    p_warn = sub.add_parser(
+        "warn-expiring", help="notify owners, once each, that their entry is about to lapse "
+                              "(for cron; no --by, it's a system action)")
+    p_warn.add_argument("--within", default=settings.allowlist_warn_within, metavar="DURATION",
+                        help=f"how far ahead to look (default {settings.allowlist_warn_within}, "
+                             f"from KRONAGENT_ALLOWLIST_WARN_WITHIN)")
+    p_warn.add_argument("--dry-run", action="store_true",
+                        help="show who would be warned without sending or recording anything")
+
     p_own = sub.add_parser(
         "reassign", help="hand an entry to a new owner (promotion history is left intact)")
     p_own.add_argument("action_class")
@@ -441,6 +512,8 @@ def main() -> int:
     if args.command == "remove":
         actor = _resolve(settings, audit, args, Permission.PROMOTE)
         return cmd_remove(store, audit, actor, args)
+    if args.command == "warn-expiring":
+        return cmd_warn_expiring(store, audit, settings, args)
     if args.command == "reassign":
         # PROMOTE, not VIEW: moving ownership moves who can renew the entry,
         # which is a governance change even though the entry itself is untouched.

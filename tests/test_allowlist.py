@@ -268,6 +268,121 @@ async def test_active_excludes_expired_but_list_keeps_it(store, audit_log) -> No
 
 
 # --------------------------------------------------------------------------- #
+# Advance warning — a courtesy layered on a fail-closed control, built so that
+# failing to deliver it can never extend anyone's authority
+# --------------------------------------------------------------------------- #
+
+async def test_expiring_within_finds_only_live_entries_with_a_deadline(store, audit_log) -> None:
+    await store.add(ActionClass.BLOCK_IP, by="a", reason="r", audit=audit_log,
+                    expires_in=timedelta(days=9))
+    await store.add(ActionClass.ISOLATE_POD, by="a", reason="r", audit=audit_log,
+                    expires_in=timedelta(days=90))       # too far out
+    await store.add(ActionClass.CORDON_NODE, by="a", reason="r", audit=audit_log)  # no TTL
+    await store.add(ActionClass.DISABLE_ACCESS_KEY, by="a", reason="r", audit=audit_log,
+                    expires_in=timedelta(days=1))
+
+    due = store.expiring_within(timedelta(days=14))
+    # Soonest first: the one about to lapse is the one to act on.
+    assert [e.action_class for e in due] == ["disable_access_key", "block_ip"]
+
+
+async def test_already_lapsed_entry_is_not_warned_about(store, audit_log) -> None:
+    """There is nothing left to warn about — the authority is already gone."""
+    await store.add(ActionClass.BLOCK_IP, by="a", reason="r", audit=audit_log,
+                    expires_in=timedelta(days=1))
+    assert store.expiring_within(timedelta(days=14), now=_in(days=2)) == []
+
+
+async def test_warn_expiring_notifies_the_owner_and_audits_it(store, audit_log) -> None:
+    await store.add(ActionClass.BLOCK_IP, by="alice", reason="30 days incident-free",
+                    audit=audit_log, owner="dana", expires_in=timedelta(days=9))
+    store.record_fired(ActionClass.BLOCK_IP)
+
+    seen = []
+    warned = await store.warn_expiring(audit=audit_log, within=timedelta(days=14),
+                                       notify=lambda e: seen.append(e.action_class) or True)
+
+    assert [e.action_class for e, _ in warned] == ["block_ip"]
+    assert warned[0][1] is True          # delivered
+    assert seen == ["block_ip"]
+
+    payload = _governance(audit_log)[-1]["payload"]
+    assert payload["decision"] == "allowlist_expiry_warning"
+    assert payload["owner"] == "dana"
+    assert payload["promoted_by"] == "alice"
+    assert payload["promotion_reason"] == "30 days incident-free"
+    assert payload["fire_count"] == 1
+    assert payload["notified"] is True
+    assert 0 < payload["seconds_remaining"] <= 9 * 86400
+
+
+async def test_each_owner_is_warned_once_per_deadline(store, audit_log) -> None:
+    """Built for a daily cron: the first run warns, the rest stay quiet."""
+    await store.add(ActionClass.BLOCK_IP, by="a", reason="r", audit=audit_log,
+                    expires_in=timedelta(days=9))
+
+    first = await store.warn_expiring(audit=audit_log, within=timedelta(days=14))
+    second = await store.warn_expiring(audit=audit_log, within=timedelta(days=14))
+    third = await store.warn_expiring(audit=audit_log, within=timedelta(days=14))
+
+    assert len(first) == 1
+    assert second == [] and third == []
+    assert len([g for g in _governance(audit_log)
+                if g["payload"]["decision"] == "allowlist_expiry_warning"]) == 1
+
+
+async def test_renewal_arms_a_fresh_warning_for_the_new_deadline(store, audit_log) -> None:
+    """Warnings are keyed on the deadline, not the class — otherwise renewing an
+    entry would buy permanent silence on every future expiry."""
+    await store.add(ActionClass.BLOCK_IP, by="a", reason="r", audit=audit_log,
+                    expires_in=timedelta(days=9))
+    await store.warn_expiring(audit=audit_log, within=timedelta(days=14))
+
+    await store.add(ActionClass.BLOCK_IP, by="a", reason="renewed", audit=audit_log,
+                    expires_in=timedelta(days=10))
+    again = await store.warn_expiring(audit=audit_log, within=timedelta(days=14))
+    assert [e.action_class for e, _ in again] == ["block_ip"]
+
+
+async def test_warning_is_recorded_even_with_no_transport_configured(store, audit_log) -> None:
+    """The record is the delivery state, so 'nobody was told' is itself on the
+    record — and the entry still lapses on schedule either way."""
+    await store.add(ActionClass.BLOCK_IP, by="a", reason="r", audit=audit_log,
+                    expires_in=timedelta(days=9))
+    warned = await store.warn_expiring(audit=audit_log, within=timedelta(days=14), notify=None)
+
+    assert warned[0][1] is False
+    payload = _governance(audit_log)[-1]["payload"]
+    assert payload["notified"] is False
+    assert "NOT reachable" in payload["reason"]
+
+
+async def test_a_broken_transport_does_not_stop_the_other_warnings(store, audit_log) -> None:
+    """A webhook that throws is a missed courtesy, not a missed control, and it
+    must not take the rest of the run down with it."""
+    await store.add(ActionClass.BLOCK_IP, by="a", reason="r", audit=audit_log,
+                    expires_in=timedelta(days=1))
+    await store.add(ActionClass.ISOLATE_POD, by="a", reason="r", audit=audit_log,
+                    expires_in=timedelta(days=2))
+
+    def explode(entry):
+        if entry.action_class == "block_ip":
+            raise RuntimeError("webhook down")
+        return True
+
+    warned = await store.warn_expiring(audit=audit_log, within=timedelta(days=14), notify=explode)
+    assert [(e.action_class, ok) for e, ok in warned] == [("block_ip", False), ("isolate_pod", True)]
+
+
+async def test_warning_does_not_extend_the_entry(store, audit_log) -> None:
+    """The whole safety argument: warning is not renewal."""
+    await store.add(ActionClass.BLOCK_IP, by="a", reason="r", audit=audit_log,
+                    expires_in=timedelta(days=9))
+    await store.warn_expiring(audit=audit_log, within=timedelta(days=14))
+    assert store.is_allowed(ActionClass.BLOCK_IP, now=_in(days=10)) is False
+
+
+# --------------------------------------------------------------------------- #
 # Ownership — who is accountable now, as distinct from who decided once
 # --------------------------------------------------------------------------- #
 
@@ -630,6 +745,58 @@ def test_cli_review_names_the_owner_to_chase_for_a_lapsed_entry(tmp_path) -> Non
 
     result = _run(["review", "--by", "carol"], tmp_path)
     assert "owned by dana — the renew-or-drop call is theirs" in result.stdout
+
+
+def test_cli_warn_expiring_reports_and_records_once(tmp_path) -> None:
+    _run(["add", "block_ip", "--by", "alice", "--reason", "30 days incident-free",
+          "--owner", "dana"], tmp_path)
+    _write_entry(tmp_path, owner="dana", reason="30 days incident-free",
+                 expires_at=_in(days=9).isoformat())
+
+    first = _run(["warn-expiring", "--within", "14d"], tmp_path)
+    assert first.returncode == 0
+    assert "Warned about 1 expiring entry" in first.stdout
+    assert "owner dana — NOT DELIVERED — no chat transport configured" in first.stdout
+    assert "promote.py add block_ip" in first.stdout
+    assert "Doing nothing is a valid answer" in first.stdout
+
+    second = _run(["warn-expiring", "--within", "14d"], tmp_path)
+    assert "No allowlist entries expiring within 14d" in second.stdout
+    assert len([g for g in _cli_governance(tmp_path)
+                if g["payload"]["decision"] == "allowlist_expiry_warning"]) == 1
+
+
+def test_cli_warn_expiring_dry_run_records_nothing(tmp_path) -> None:
+    """So an operator can see who is about to be pinged without consuming the
+    one warning that entry gets."""
+    _run(["add", "block_ip", "--by", "alice", "--reason", "r", "--owner", "dana"], tmp_path)
+    _write_entry(tmp_path, owner="dana", expires_at=_in(days=9).isoformat())
+
+    dry = _run(["warn-expiring", "--dry-run"], tmp_path)
+    assert "DRY RUN — 1 entry would be warned about" in dry.stdout
+    assert _cli_governance(tmp_path) and not [
+        g for g in _cli_governance(tmp_path)
+        if g["payload"]["decision"] == "allowlist_expiry_warning"
+    ]
+
+    # ...and the real run still warns.
+    assert "Warned about 1" in _run(["warn-expiring"], tmp_path).stdout
+
+
+def test_cli_warn_expiring_ignores_entries_that_are_not_close(tmp_path) -> None:
+    _run(["add", "block_ip", "--by", "alice", "--reason", "r", "--expires-in", "90d"], tmp_path)
+    result = _run(["warn-expiring", "--within", "14d"], tmp_path)
+    assert "No allowlist entries expiring within 14d" in result.stdout
+
+
+def test_cli_warn_expiring_needs_no_operator_identity(tmp_path) -> None:
+    """It's a system action for cron — nobody is deciding anything, the TTL
+    already did. Requiring --by would just invite a shared fake identity."""
+    _run(["add", "block_ip", "--by", "alice", "--reason", "r"], tmp_path)
+    _write_entry(tmp_path, expires_at=_in(days=3).isoformat())
+    result = _run(["warn-expiring"], tmp_path)
+    assert result.returncode == 0
+    assert _cli_governance(tmp_path)[-1]["payload"]["by"] == "system"
 
 
 def test_cli_reports_an_entry_whose_action_class_no_longer_exists(tmp_path) -> None:

@@ -37,6 +37,12 @@ this platform's safety case rests on. Three mechanisms close it:
     That is a different fact from `promoted_by`/`promoted_at`, which record a
     decision someone made once and cannot un-make. Owners are reassigned as
     people change teams (`set_owner`); the promotion history never changes.
+  * **Advance warning.** `warn_expiring()` tells an entry's owner, once, that
+    their TTL is about to run out. Strictly a courtesy on top of the control:
+    the entry lapses whether or not the message arrives, so a broken webhook
+    can never extend anyone's authority. Its only job is to make sure the
+    lapse is a decision someone declined to make, rather than a surprise
+    discovered mid-incident.
   * **Last-fired tracking.** `record_fired()` is called when an entry actually
     authorizes an autonomous execution. An entry that never fires is standing
     authority with no benefit — the worst kind to leave lying around.
@@ -67,7 +73,7 @@ import os
 import re
 import tempfile
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Callable, Optional
 
 from pydantic import (
     AliasChoices, BaseModel, ConfigDict, Field, ValidationError, model_validator,
@@ -374,6 +380,91 @@ class AllowlistStore:
                 },
             ))
         return lapsed
+
+    def expiring_within(
+        self, window: timedelta, *, now: Optional[datetime] = None,
+    ) -> list[AllowlistEntry]:
+        """Live entries whose TTL lapses inside `window`, soonest first.
+
+        Only entries that still hold authority: an already-lapsed one has
+        nothing left to warn about, and one with no TTL never lapses.
+        """
+        now = now or _utcnow()
+        due = []
+        for entry in self.active(now=now):
+            expiry = parse_ts(entry.expires_at)
+            if expiry is not None and expiry - now <= window:
+                due.append((expiry, entry))
+        return [entry for _, entry in sorted(due, key=lambda pair: pair[0])]
+
+    def warned_expiries(self, audit: AuditLog) -> set[tuple[str, str]]:
+        """(action_class, expires_at) pairs already warned about.
+
+        Keyed on the expiry itself, not the class, so renewing an entry arms a
+        fresh warning for its new deadline while a daily cron over the same
+        deadline stays silent after the first notice.
+        """
+        return {
+            (r["payload"].get("action_class", ""), r["payload"].get("expires_at") or "")
+            for r in audit.records()
+            if r.get("stage") == "governance"
+            and r.get("payload", {}).get("decision") == "allowlist_expiry_warning"
+        }
+
+    async def warn_expiring(
+        self, *, audit: AuditLog, within: timedelta,
+        notify: Optional[Callable[[AllowlistEntry], bool]] = None,
+        now: Optional[datetime] = None,
+    ) -> list[tuple[AllowlistEntry, bool]]:
+        """Warn each owner once that their entry is about to lapse.
+
+        The TTL is deliberately fail-closed — an entry lapses whether or not
+        anyone was told — so this is a courtesy, not a control, and it is built
+        so that failing to deliver it cannot extend anyone's authority. The
+        warning is recorded in the audit chain even when no chat transport is
+        configured or the send fails, which is also what makes it exactly-once:
+        the record *is* the delivery state.
+
+        `notify` is injected rather than imported so the store stays free of
+        transport concerns and tests never touch the network. Returns
+        (entry, notified) pairs for everything warned this run.
+        """
+        now = now or _utcnow()
+        already = self.warned_expiries(audit)
+        warned = []
+        for entry in self.expiring_within(within, now=now):
+            if (entry.action_class, entry.expires_at or "") in already:
+                continue
+            notified = False
+            if notify is not None:
+                try:
+                    notified = bool(notify(entry))
+                except Exception:
+                    # A broken webhook must not stop the remaining warnings, and
+                    # must not look like a delivered one.
+                    notified = False
+            expiry = parse_ts(entry.expires_at)
+            await audit.record(AuditRecord(
+                finding_id="_governance", stage="governance",
+                payload={
+                    "decision": "allowlist_expiry_warning",
+                    "action_class": entry.action_class,
+                    "by": "system",
+                    "reason": (f"expires {entry.expires_at} — owner {entry.owner} notified"
+                               if notified else
+                               f"expires {entry.expires_at} — owner {entry.owner} NOT reachable "
+                               f"(no chat transport or delivery failed)"),
+                    "owner": entry.owner, "expires_at": entry.expires_at,
+                    "seconds_remaining": int((expiry - now).total_seconds()) if expiry else None,
+                    "notified": notified,
+                    "promoted_by": entry.promoted_by, "promoted_at": entry.promoted_at,
+                    "promotion_reason": entry.reason,
+                    "last_fired_at": entry.last_fired_at, "fire_count": entry.fire_count,
+                    "identity_verified": False, "auth_method": "system",
+                },
+            ))
+            warned.append((entry, notified))
+        return warned
 
     def record_fired(self, action_class: ActionClass, *, now: Optional[datetime] = None) -> None:
         """Note that this entry authorized an autonomous execution.
