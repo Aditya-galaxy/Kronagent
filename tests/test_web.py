@@ -333,3 +333,65 @@ async def test_demote_allowlist_success(test_env) -> None:
     
     # Verify allowlist state in database
     assert "isolate_pod" not in [entry.action_class for entry in allowlist.list()]
+
+
+# --------------------------------------------------------------------------- #
+# Console wiring — the dashboard shipped for months as a static mockup because
+# index.html never referenced app.js. Nothing failed; it just did nothing.
+# --------------------------------------------------------------------------- #
+
+def test_index_loads_the_client_application() -> None:
+    """Without this script tag the console renders placeholder zeros and empty
+    tables forever: no fetches, no buttons, no governance surface at all."""
+    import os as _os
+    from kronagent import web as _web
+    index = _os.path.join(_web.STATIC_DIR, "index.html")
+    with open(index, "r", encoding="utf-8") as fh:
+        html = fh.read()
+    assert '<script src="/static/app.js"></script>' in html
+
+
+def test_review_endpoint_serves_the_policy_engines_own_classification(test_env) -> None:
+    """The console used to derive blast radius from the action-class name and
+    got it wrong — it showed revoke_role_sessions as account-wide when the
+    policy table calls it single-resource but destructive. Serving the real
+    classification is the difference between the console describing the safety
+    ceiling and guessing at it."""
+    client, _, allowlist, _ = test_env
+    allowlist._write_all({
+        "revoke_role_sessions": {
+            "action_class": "revoke_role_sessions", "promoted_by": "alice", "reason": "r",
+            "promoted_at": "2026-05-01T00:00:00+00:00", "owner": "dana",
+        },
+        "block_ip": {
+            "action_class": "block_ip", "promoted_by": "alice", "reason": "r",
+            "promoted_at": "2026-05-01T00:00:00+00:00", "owner": "erin",
+        },
+    })
+
+    by_class = {e["action_class"]: e for e in client.get("/api/allowlist/review").json()}
+
+    # Destructive-but-single-resource: the console must show it can never
+    # auto-execute, no matter that it sits on the allowlist.
+    assert by_class["revoke_role_sessions"]["blast_radius"] == "single_resource"
+    assert by_class["revoke_role_sessions"]["auto_eligible"] is False
+    assert by_class["revoke_role_sessions"]["known_action_class"] is True
+
+    assert by_class["block_ip"]["blast_radius"] == "single_resource"
+    assert by_class["block_ip"]["auto_eligible"] is True
+    assert by_class["block_ip"]["reversible"] is True
+
+
+def test_review_endpoint_survives_an_unknown_action_class(test_env) -> None:
+    """A renamed or removed action leaves an orphan entry. It grants nothing,
+    and the console has to say so rather than render blanks."""
+    client, _, allowlist, _ = test_env
+    allowlist._write_all({"retired_action": {
+        "action_class": "retired_action", "promoted_by": "alice", "reason": "r",
+        "promoted_at": "2026-05-01T00:00:00+00:00", "owner": "dana",
+    }})
+
+    entry = client.get("/api/allowlist/review").json()[0]
+    assert entry["known_action_class"] is False
+    assert entry["auto_eligible"] is False
+    assert entry["blast_radius"] is None
