@@ -29,17 +29,17 @@
             </div>
             <nav class="nav-menu">
                 <button class="nav-item active" data-tab="overview">
-                    <span class="nav-icon">📊</span> Overview
+                    <span class="nav-icon">📊</span> <span class="nav-label">Overview</span>
                 </button>
                 <button class="nav-item" data-tab="queue">
-                    <span class="nav-icon">⏳</span> Approval Queue
+                    <span class="nav-icon">⏳</span> <span class="nav-label">Approval Queue</span>
                     <span class="badge pending-count-badge" id="nav-pending-badge">0</span>
                 </button>
                 <button class="nav-item" data-tab="audit">
-                    <span class="nav-icon">📜</span> Audit Explorer
+                    <span class="nav-icon">📜</span> <span class="nav-label">Audit Explorer</span>
                 </button>
                 <button class="nav-item" data-tab="allowlist">
-                    <span class="nav-icon">⚙️</span> Allowlist Policy
+                    <span class="nav-icon">⚙️</span> <span class="nav-label">Allowlist Policy</span>
                 </button>
             </nav>
             <!-- Operator Credentials (RBAC View Access) -->
@@ -185,7 +185,7 @@
                     <div class="panel width-350">
                         <h2>Promote Action Class</h2>
                         <p class="description">
-                            Add a containment capability to the autonomous allowlist (requires `PROMOTE` permission).
+                            Add a containment capability to the autonomous allowlist (requires the <code>PROMOTE</code> permission).
                         </p>
                         <form id="promote-form" class="standard-form">
                             <div class="form-group">
