@@ -694,6 +694,20 @@ code {
     display: flex;
     gap: 24px;
     align-items: flex-start;
+    /* The governance table now carries owner, TTL, usage and classification,
+       so it needs real width. Below ~1500px the promote form drops underneath
+       it instead of squeezing the table into an unreadable column — a laptop
+       at 1440 was giving the table 686px for six columns. */
+    flex-wrap: wrap;
+}
+
+.allowlist-layout > .flex-1 {
+    min-width: 640px;
+}
+
+@media (max-width: 1500px) {
+    .allowlist-layout > .flex-1 { min-width: 100%; }
+    .allowlist-layout > .width-350 { width: 100%; }
 }
 
 .flex-1 { flex: 1; }
@@ -795,4 +809,83 @@ code {
     outline: none;
     border-color: var(--accent-blue);
     width: 300px;
+}
+
+/* --- Allowlist governance table ------------------------------------------ */
+/* The allowlist row carries more than a name now: owner, TTL, usage, and the
+   policy engine's classification. The sub-line keeps that dense without
+   turning every cell into a paragraph. */
+
+.text-muted { color: var(--text-muted); }
+
+.cell-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* A lapsed entry is still listed — it has to be, or nobody can decide whether
+   to renew it — but it must never read as if it still grants autonomy. */
+.allowlist-table tr.row-lapsed {
+    background-color: rgba(239, 68, 68, 0.06);
+}
+
+.allowlist-table tr.row-lapsed code {
+    opacity: 0.65;
+    text-decoration: line-through;
+}
+
+.governance-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.governance-actions .btn {
+    flex: 1 1 auto;
+    white-space: nowrap;
+}
+
+.allowlist-table td {
+    vertical-align: top;
+}
+
+/* Column widths: the action class and owner carry sub-lines and need room;
+   status holds up to three badges; governance is three buttons wide. */
+.allowlist-table th:nth-child(1) { width: 26%; }
+.allowlist-table th:nth-child(2) { width: 13%; }
+.allowlist-table th:nth-child(3) { width: 17%; }
+.allowlist-table th:nth-child(4) { width: 14%; }
+.allowlist-table th:nth-child(5) { width: 14%; }
+.allowlist-table th:nth-child(6) { width: 16%; }
+
+/* A badge that wraps mid-word reads as two half-statuses ("NO" / "TTL"). */
+.severity-badge {
+    white-space: nowrap;
+    display: inline-block;
+}
+
+/* Wrapper, not the <td> itself: making a table cell a flex container drops it
+   out of the table layout algorithm and its borders stop lining up. */
+.status-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.label-hint {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 11px;
+}
+
+.field-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 6px;
+    line-height: 1.5;
 }

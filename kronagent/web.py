@@ -25,6 +25,7 @@ from .approvals import ApprovalStore, now_iso
 from .allowlist import AllowlistStore, DurationError, parse_duration
 from .audit import AuditLog
 from .identity import resolve_actor, Permission, AuthorizationError
+from .policy import PolicyEngine
 from .containment import ContainmentExecutor
 from .providers import build_containment_adapters
 from .schemas import AuditRecord, PolicyDecision, BlastRadius, ActionClass
@@ -333,16 +334,45 @@ def review_allowlist(request: Request) -> list[dict[str, Any]]:
     when, why, when it lapses, and whether it has ever actually fired. Expired
     and stale entries included and marked — an entry that never fires is
     standing authority with no benefit, which is precisely what a review is
-    looking for."""
+    looking for.
+
+    Each entry also carries the policy engine's own classification
+    (reversible / blast radius / auto-eligible). That is served from
+    `_ACTION_PROPERTIES` rather than re-derived by the caller: the console used
+    to guess it from the action-class name and got it wrong — it showed
+    `block_ip` as subnet-wide and `revoke_role_sessions` as account-wide when
+    the policy table classifies both single-resource — which misrepresents the
+    exact classification the safety ceiling is built on.
+    """
     check_view_permission(request)
     tenant_id = resolve_tenant_id(request)
     store = get_allowlist_store(tenant_id)
+    policy = PolicyEngine(settings, store)
+
+    def _classify(action_class: str) -> dict[str, Any]:
+        try:
+            ac = ActionClass(action_class)
+        except ValueError:
+            # An entry naming a class the taxonomy no longer has. It grants
+            # nothing — the engine can never propose it — and the console needs
+            # to say so rather than render blanks.
+            return {"known_action_class": False, "auto_eligible": False,
+                    "reversible": None, "blast_radius": None}
+        props = policy._properties(ac)
+        return {
+            "known_action_class": True,
+            "auto_eligible": policy.is_auto_eligible(ac),
+            "reversible": props["reversible"],
+            "blast_radius": props["blast_radius"].value,
+        }
+
     return [
         {
             **entry.model_dump(),
             "expired": entry.is_expired(),
             "stale": entry.is_stale(),
             "never_fired": entry.last_fired_at is None,
+            **_classify(entry.action_class),
         }
         for entry in store.list()
     ]
