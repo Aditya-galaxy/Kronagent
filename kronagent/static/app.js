@@ -42,9 +42,12 @@ document.addEventListener("DOMContentLoaded", () => {
         auditBody: document.getElementById("audit-table-body"),
         auditSearch: document.getElementById("audit-search"),
         allowlistBody: document.getElementById("allowlist-table-body"),
+        allowlistAttentionCount: document.getElementById("allowlist-attention-count"),
         promoteForm: document.getElementById("promote-form"),
         promoteClass: document.getElementById("promote-class"),
         promoteReason: document.getElementById("promote-reason"),
+        promoteOwner: document.getElementById("promote-owner"),
+        promoteExpires: document.getElementById("promote-expires"),
 
         // Modals
         authModal: document.getElementById("auth-modal"),
@@ -55,7 +58,12 @@ document.addEventListener("DOMContentLoaded", () => {
         modalTargetId: document.getElementById("modal-target-id"),
         modalActionType: document.getElementById("modal-action-type"),
         modalActionClass: document.getElementById("modal-action-class"),
+        modalExpiresIn: document.getElementById("modal-expires-in"),
         modalReasonGroup: document.getElementById("modal-reason-group"),
+        modalOwnerGroup: document.getElementById("modal-owner-group"),
+        modalOwnerLabel: document.getElementById("modal-owner-label"),
+        modalOwnerNote: document.getElementById("modal-owner-note"),
+        authOwner: document.getElementById("auth-owner"),
         authOperatorId: document.getElementById("auth-operator-id"),
         authToken: document.getElementById("auth-token"),
         authReason: document.getElementById("auth-reason"),
@@ -154,9 +162,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
 
+    // /api/allowlist/review, not /api/allowlist: the console is a governance
+    // surface, so it needs the owner, the TTL, and whether the entry has ever
+    // actually fired — and it needs lapsed entries to stay visible, since
+    // deciding whether to renew one means looking at it.
     const fetchAllowlist = async () => {
         try {
-            const res = await fetch("/api/allowlist", {
+            const res = await fetch("/api/allowlist/review", {
                 headers: getHeaders()
             });
             state.allowlist = await res.json();
@@ -293,7 +305,22 @@ document.addEventListener("DOMContentLoaded", () => {
             } else if (event.stage === "approval") {
                 stageDesc = `Human ${payload.decision} for ${payload.action_class} on ${payload.target} by **${payload.operator_id}**`;
             } else if (event.stage === "governance") {
-                stageDesc = `Allowlist modification: ${payload.decision} of ${payload.action_class} by **${payload.operator_id}**`;
+                // `by` covers the system-authored decisions (expiry sweeps and
+                // expiry warnings have no operator behind them); operator_id is
+                // only present when a human ran the command. Falling through to
+                // operator_id alone rendered those as "by **undefined**".
+                const actor = payload.operator_id || payload.by || "system";
+                if (payload.decision === "allowlist_expired") {
+                    stageDesc = `Autonomy for ${payload.action_class} **lapsed** (TTL elapsed, not renewed) — owner was ${payload.owner || payload.promoted_by}`;
+                } else if (payload.decision === "allowlist_expiry_warning") {
+                    stageDesc = `Warned ${payload.owner} that ${payload.action_class} is about to lapse${payload.notified ? "" : " (delivery failed — entry still expires on schedule)"}`;
+                } else if (payload.decision === "allowlist_review") {
+                    stageDesc = `Allowlist reviewed by **${actor}** — ${(payload.flagged || []).length} of ${payload.entries} entries flagged`;
+                } else if (payload.decision === "allowlist_reassign") {
+                    stageDesc = `Ownership of ${payload.action_class} moved ${payload.previous_owner ? `from ${payload.previous_owner} ` : ""}to ${payload.owner} by **${actor}**`;
+                } else {
+                    stageDesc = `Allowlist modification: ${payload.decision} of ${payload.action_class} by **${actor}**`;
+                }
             } else if (event.stage === "threat_intel") {
                 stageDesc = `Threat intelligence update: *${payload.threat_intel_summary || payload.intel_summary || ''}*`;
             } else if (event.stage === "correlation") {
@@ -347,24 +374,121 @@ document.addEventListener("DOMContentLoaded", () => {
         }).join("");
     };
 
+    const DAY_MS = 86400000;
+    const EXPIRING_SOON_MS = 14 * DAY_MS;
+
+    // Coarse on purpose: governance review is a days-and-weeks conversation.
+    const humanizeMs = (ms) => {
+        const abs = Math.abs(ms);
+        if (abs < 3600000) return `${Math.round(abs / 60000)}m`;
+        if (abs < DAY_MS) return `${Math.round(abs / 3600000)}h`;
+        return `${Math.round(abs / DAY_MS)}d`;
+    };
+
+    const expiryCell = (entry) => {
+        if (!entry.expires_at) {
+            return `<span class="text-muted">never</span>
+                    <div class="cell-sub">standing authority</div>`;
+        }
+        const ms = new Date(entry.expires_at).getTime() - Date.now();
+        if (entry.expired) {
+            return `<span class="text-danger">lapsed ${humanizeMs(ms)} ago</span>
+                    <div class="cell-sub">${formatTime(entry.expires_at)}</div>`;
+        }
+        const cls = ms <= EXPIRING_SOON_MS ? "text-warning" : "";
+        return `<span class="${cls}">in ${humanizeMs(ms)}</span>
+                <div class="cell-sub">${formatTime(entry.expires_at)}</div>`;
+    };
+
+    const firedCell = (entry) => {
+        if (entry.never_fired) {
+            return `<span class="text-muted">never</span>
+                    <div class="cell-sub">authorized nothing since promotion</div>`;
+        }
+        const ms = Date.now() - new Date(entry.last_fired_at).getTime();
+        return `<span>${humanizeMs(ms)} ago</span>
+                <div class="cell-sub">${entry.fire_count}&times; total</div>`;
+    };
+
+    // Worst-first: an operator scanning this column should hit the thing that
+    // needs a decision before the things that don't.
+    const statusBadges = (entry) => {
+        const badges = [];
+        if (!entry.known_action_class) {
+            badges.push(`<span class="severity-badge critical">UNKNOWN CLASS</span>`);
+        } else if (!entry.auto_eligible) {
+            badges.push(`<span class="severity-badge critical">NOT AUTO-ELIGIBLE</span>`);
+        }
+        if (entry.expired) {
+            badges.push(`<span class="severity-badge critical">EXPIRED</span>`);
+        } else if (entry.expires_at &&
+                   new Date(entry.expires_at).getTime() - Date.now() <= EXPIRING_SOON_MS) {
+            badges.push(`<span class="severity-badge high">EXPIRING SOON</span>`);
+        }
+        if (entry.never_fired) {
+            badges.push(`<span class="severity-badge medium">NEVER FIRED</span>`);
+        } else if (entry.stale) {
+            badges.push(`<span class="severity-badge medium">STALE</span>`);
+        }
+        if (!entry.expires_at) {
+            badges.push(`<span class="severity-badge medium">NO TTL</span>`);
+        }
+        if (badges.length === 0) {
+            badges.push(`<span class="severity-badge low">ACTIVE</span>`);
+        }
+        return `<div class="status-badges">${badges.join("")}</div>`;
+    };
+
+    const needsDecision = (entry) =>
+        entry.expired || entry.stale || entry.never_fired || !entry.expires_at ||
+        !entry.auto_eligible || !entry.known_action_class;
+
+    // The policy engine's own classification, served by the API rather than
+    // guessed here from the class name — the console used to guess and got it
+    // wrong, reporting block_ip as subnet-wide and revoke_role_sessions as
+    // account-wide when the policy table calls both single-resource.
+    const classificationCell = (entry) => {
+        if (!entry.known_action_class) {
+            return `not in the action taxonomy`;
+        }
+        const blast = (entry.blast_radius || "").replace(/_/g, " ");
+        return `${entry.reversible ? "reversible" : "irreversible"} &middot; ${blast}`;
+    };
+
     const updateAllowlistUI = () => {
         if (state.allowlist.length === 0) {
-            elements.allowlistBody.innerHTML = `<tr><td colspan="5" class="text-center">No allowlist entries configured.</td></tr>`;
+            elements.allowlistBody.innerHTML = `<tr><td colspan="6" class="text-center">No allowlist entries configured — every action requires human approval.</td></tr>`;
+            elements.allowlistAttentionCount.textContent = "0 need a decision";
             return;
         }
 
-        elements.allowlistBody.innerHTML = state.allowlist.map(ac => {
-            const domain = ac.startsWith("isolate_pod") || ac.startsWith("cordon_node") || ac.startsWith("delete_pod") || ac.startsWith("scale_deployment_zero") ? "Kubernetes" : "AWS";
-            const blastRadius = ac.startsWith("block_ip") || ac.startsWith("cordon_node") ? "Subnet" : (ac.startsWith("attach_deny_all_to_principal") || ac.startsWith("revoke_role_sessions") ? "Account" : "Single Resource");
-            const reversible = ac.startsWith("terminate_instance") || ac.startsWith("delete_pod") ? "No" : "Yes";
+        const flagged = state.allowlist.filter(needsDecision).length;
+        elements.allowlistAttentionCount.textContent =
+            `${flagged} of ${state.allowlist.length} need a decision`;
 
+        elements.allowlistBody.innerHTML = state.allowlist.map(entry => {
+            const ac = entry.action_class;
+            // Deliberately NOT flagging owner !== promoted_by as "reassigned":
+            // promoting on someone else's behalf produces exactly that shape at
+            // promotion time, so the claim would be false on every such row. A
+            // real reassignment is an audit event, not something the entry shows.
             return `
-                <tr>
-                    <td><code>${ac}</code></td>
-                    <td>${domain}</td>
-                    <td>${blastRadius}</td>
-                    <td>${reversible}</td>
+                <tr class="${entry.expired ? "row-lapsed" : ""}">
                     <td>
+                        <code>${ac}</code>
+                        <div class="cell-sub" title="${entry.reason}">${entry.reason}</div>
+                        <div class="cell-sub">${classificationCell(entry)}</div>
+                    </td>
+                    <td>
+                        ${entry.owner}
+                        <div class="cell-sub">promoted by ${entry.promoted_by}</div>
+                    </td>
+                    <td>${statusBadges(entry)}</td>
+                    <td>${expiryCell(entry)}</td>
+                    <td>${firedCell(entry)}</td>
+                    <td class="governance-actions">
+                        <button class="btn btn-primary btn-small" onclick="openAllowlistModal('${ac}', 'promote')">${entry.expired ? "Renew" : "Extend"}</button>
+                        <button class="btn btn-secondary btn-small" onclick="openAllowlistModal('${ac}', 'reassign')">Reassign</button>
                         <button class="btn btn-danger btn-small" onclick="openAllowlistModal('${ac}', 'demote')">Demote</button>
                     </td>
                 </tr>
@@ -373,33 +497,53 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     // Modal Actions (Exposed to window so HTML onclick attributes can invoke them)
+    const resetAuthModal = () => {
+        elements.authOperatorId.value = "";
+        elements.authToken.value = "";
+        elements.authReason.value = "";
+        elements.authOwner.value = "";
+        elements.modalExpiresIn.value = "";
+        elements.modalOwnerGroup.style.display = "none";
+        elements.authOwner.required = false;
+        elements.modalReasonGroup.style.display = "flex";
+        elements.authReason.required = true;
+    };
+
     window.openApprovalModal = (requestId, type) => {
+        resetAuthModal();
         elements.modalActionTitle.textContent = type === "approve" ? "Authorize Action Execution" : "Reject Action Request";
         elements.modalTargetId.value = requestId;
         elements.modalActionType.value = type;
         elements.modalActionClass.value = "";
-        elements.modalReasonGroup.style.display = "flex";
-        elements.authReason.required = true;
-        
-        elements.authOperatorId.value = "";
-        elements.authToken.value = "";
-        elements.authReason.value = "";
-
         elements.authModal.classList.add("active");
     };
 
+    const ALLOWLIST_MODAL_TITLES = {
+        promote: "Renew Autonomy for This Class",
+        demote: "Demote Class from Allowlist",
+        reassign: "Reassign Ownership"
+    };
+
     window.openAllowlistModal = (actionClass, type) => {
-        elements.modalActionTitle.textContent = type === "promote" ? "Promote Class to Autonomous Allowlist" : "Demote Class from Allowlist";
+        resetAuthModal();
+        elements.modalActionTitle.textContent = ALLOWLIST_MODAL_TITLES[type] || "Authorize Action";
         elements.modalTargetId.value = "_governance";
         elements.modalActionType.value = type;
         elements.modalActionClass.value = actionClass;
-        elements.modalReasonGroup.style.display = "flex";
-        elements.authReason.required = true;
-        
-        elements.authOperatorId.value = "";
-        elements.authToken.value = "";
-        elements.authReason.value = "";
 
+        if (type === "reassign") {
+            elements.modalOwnerGroup.style.display = "flex";
+            elements.authOwner.required = true;
+            elements.modalOwnerLabel.textContent = "New Owner";
+            elements.modalOwnerNote.textContent =
+                "Ownership moves; the promotion record (who promoted it, when, and why) does not.";
+        }
+        if (type === "promote") {
+            // Renewing from the table is a fresh 90-day grant. The reason field
+            // stays empty and required on purpose: re-earning autonomy means
+            // stating why it still applies, not re-submitting the old answer.
+            elements.modalExpiresIn.value = "90d";
+        }
         elements.authModal.classList.add("active");
     };
 
@@ -478,17 +622,50 @@ document.addEventListener("DOMContentLoaded", () => {
                         action_class: actionClass,
                         operator_id: operatorId,
                         token: token,
-                        reason: reason
+                        reason: reason,
+                        owner: elements.authOwner.value.trim() || null,
+                        expires_in: elements.modalExpiresIn.value || null
                     })
                 });
-                
+
                 const data = await res.json();
                 if (res.ok) {
-                    alert(`Successfully promoted ${actionClass} to allowlist.`);
+                    alert(data.expires_at
+                        ? `${actionClass} is autonomous until ${formatTime(data.expires_at)}. `
+                          + `Owner: ${data.owner}. After that it requires human approval again `
+                          + `unless renewed.`
+                        : `${actionClass} promoted with no expiry — standing authority until `
+                          + `someone demotes it. Owner: ${data.owner}.`);
                     closeModal();
                     refreshData();
                 } else {
                     alert(`Failed to promote class: ${data.detail}`);
+                }
+            } else if (type === "reassign") {
+                const res = await fetch("/api/allowlist/reassign", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Tenant-ID": state.activeTenant
+                    },
+                    body: JSON.stringify({
+                        action_class: actionClass,
+                        operator_id: operatorId,
+                        token: token,
+                        reason: reason,
+                        owner: elements.authOwner.value.trim()
+                    })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    alert(data.status === "noop"
+                        ? data.detail
+                        : `${actionClass} is now owned by ${data.owner}. The promotion record is unchanged.`);
+                    closeModal();
+                    refreshData();
+                } else {
+                    alert(`Failed to reassign owner: ${data.detail}`);
                 }
             } else if (type === "demote") {
                 const res = await fetch("/api/allowlist/demote", {
@@ -526,20 +703,23 @@ document.addEventListener("DOMContentLoaded", () => {
     // Promotion form submit
     elements.promoteForm.addEventListener("submit", (e) => {
         e.preventDefault();
-        const actionClass = elements.promoteClass.value;
-        const reason = elements.promoteReason.value;
-        
+
         // Reuse OIDC/local prompt auth modal for promotion
+        resetAuthModal();
         elements.modalActionTitle.textContent = "Authorize Class Promotion";
         elements.modalTargetId.value = "_governance";
         elements.modalActionType.value = "promote";
-        elements.modalActionClass.value = actionClass;
-        elements.modalReasonGroup.style.display = "flex";
-        elements.authReason.required = true;
+        elements.modalActionClass.value = elements.promoteClass.value;
+        elements.modalExpiresIn.value = elements.promoteExpires.value;
 
-        elements.authOperatorId.value = "";
-        elements.authToken.value = "";
-        elements.authReason.value = reason; // Seed justification
+        // Carry the owner through the auth step so it can be set by whoever is
+        // promoting on someone else's behalf, and stays visible/editable there.
+        elements.modalOwnerGroup.style.display = "flex";
+        elements.modalOwnerLabel.textContent = "Owner";
+        elements.modalOwnerNote.textContent =
+            "Who gets asked to renew this entry. Leave blank to own it yourself.";
+        elements.authOwner.value = elements.promoteOwner.value.trim();
+        elements.authReason.value = elements.promoteReason.value; // Seed justification
 
         elements.authModal.classList.add("active");
     });

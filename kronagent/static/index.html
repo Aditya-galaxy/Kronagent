@@ -154,24 +154,28 @@
             <div class="tab-content" id="tab-allowlist">
                 <div class="allowlist-layout">
                     <div class="panel flex-1">
-                        <h2>Active Autonomous Allowlist</h2>
+                        <div class="panel-header">
+                            <h2>Autonomous Allowlist</h2>
+                            <span class="badge" id="allowlist-attention-count">0 need a decision</span>
+                        </div>
                         <p class="description">
-                            Containment action classes listed below will execute **autonomously** when triggered by matching threats. All other actions halt for operator sign-off.
+                            Action classes here execute <strong>autonomously</strong>; everything else halts for operator sign-off. Autonomy is earned per class and <strong>re-earned</strong> — an entry with a TTL lapses back to requiring approval unless its owner renews it. Lapsed entries stay listed so the renew-or-drop call can still be made.
                         </p>
                         <div class="table-container">
                             <table class="allowlist-table">
                                 <thead>
                                     <tr>
                                         <th>Action Class</th>
-                                        <th>Target Domain</th>
-                                        <th>Blast Radius</th>
-                                        <th>Reversible</th>
+                                        <th>Owner</th>
+                                        <th>Status</th>
+                                        <th>Expires</th>
+                                        <th>Last Fired</th>
                                         <th>Governance</th>
                                     </tr>
                                 </thead>
                                 <tbody id="allowlist-table-body">
                                     <tr>
-                                        <td colspan="5" class="text-center">No allowlist entries configured.</td>
+                                        <td colspan="6" class="text-center">No allowlist entries configured.</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -206,6 +210,22 @@
                                 <label for="promote-reason">Justification</label>
                                 <textarea id="promote-reason" placeholder="Provide regulatory or operational rationale..." required></textarea>
                             </div>
+                            <div class="form-group">
+                                <label for="promote-owner">Owner <span class="label-hint">(who gets asked to renew it)</span></label>
+                                <input type="text" id="promote-owner" placeholder="Defaults to you, the promoter">
+                            </div>
+                            <div class="form-group">
+                                <label for="promote-expires">Expires in <span class="label-hint">(re-earn it on a clock)</span></label>
+                                <select id="promote-expires">
+                                    <option value="30d">30 days</option>
+                                    <option value="90d" selected>90 days</option>
+                                    <option value="180d">180 days</option>
+                                    <option value="">Never — standing authority</option>
+                                </select>
+                                <p class="field-note">
+                                    A review fails open, an expiry fails closed. With a TTL, inattention withdraws autonomy instead of extending it.
+                                </p>
+                            </div>
                             <button type="submit" class="btn btn-primary btn-block">Add to Allowlist</button>
                         </form>
                     </div>
@@ -223,8 +243,9 @@
             </div>
             <form id="auth-form" class="standard-form">
                 <input type="hidden" id="modal-target-id">
-                <input type="hidden" id="modal-action-type"> <!-- "approve" | "deny" | "promote" | "demote" -->
+                <input type="hidden" id="modal-action-type"> <!-- "approve" | "deny" | "promote" | "demote" | "reassign" -->
                 <input type="hidden" id="modal-action-class"> <!-- optional -->
+                <input type="hidden" id="modal-expires-in"> <!-- optional, promote only -->
 
                 <div class="form-group">
                     <label for="auth-operator-id">Operator ID</label>
@@ -233,6 +254,13 @@
                 <div class="form-group">
                     <label for="auth-token">Security Token / Password</label>
                     <input type="password" id="auth-token" placeholder="OIDC JWT or local password token..." required>
+                </div>
+                <div class="form-group" id="modal-owner-group" style="display:none;">
+                    <label for="auth-owner" id="modal-owner-label">New Owner</label>
+                    <input type="text" id="auth-owner" placeholder="Operator who becomes accountable for this entry...">
+                    <p class="field-note" id="modal-owner-note">
+                        Ownership moves; the promotion record (who promoted it, when, and why) does not.
+                    </p>
                 </div>
                 <div class="form-group" id="modal-reason-group">
                     <label for="auth-reason">Operator Justification</label>
@@ -245,5 +273,10 @@
             </form>
         </div>
     </div>
+
+    <!-- Without this the console is a static mockup: every number stays at its
+         placeholder zero, every table stays empty, and no button does anything.
+         app.js has been shipped unreferenced since the console was written. -->
+    <script src="/static/app.js"></script>
 </body>
 </html>

@@ -259,9 +259,12 @@ def cmd_review(store: AllowlistStore, audit: AuditLog, settings: Settings,
     for e in entries:
         reasons = flagged.get(e.action_class, [])
         marker = "⚠" if reasons else "✓"
-        owned = "" if e.owner == e.promoted_by else "  (reassigned since promotion)"
+        # Not labelling owner != promoted_by as "reassigned": promoting on
+        # someone else's behalf (`add --owner dana`) produces exactly that shape
+        # at promotion time, so the claim was false on every such entry. A real
+        # reassignment is an audit event, not a property of the entry.
         print(f"\n{marker} {e.action_class}")
-        print(f"    owner        {e.owner} — ask them to renew{owned}")
+        print(f"    owner        {e.owner} — ask them to renew")
         print(f"    promoted by  {e.promoted_by} at {e.promoted_at} ({_ago(e.promoted_at, now)})")
         print(f"    reason       {e.reason}")
         print(f"    expires      {_expiry_phrase(e, now)}")

@@ -713,8 +713,18 @@ def test_cli_reassign_moves_ownership_without_rewriting_history(tmp_path) -> Non
     review = _run(["review", "--by", "carol"], tmp_path)
     assert "owner        erin" in review.stdout
     assert "promoted by  alice" in review.stdout
-    assert "reassigned since promotion" in review.stdout
     assert "30 days incident-free" in review.stdout
+
+
+def test_cli_review_does_not_claim_a_reassignment_that_never_happened(tmp_path) -> None:
+    """Promoting on someone else's behalf leaves owner != promoted_by from the
+    start. Reporting that as "reassigned since promotion" was false on every
+    such entry — and the store has no way to know, since a reassignment is an
+    audit event, not a property of the entry."""
+    _run(["add", "block_ip", "--by", "alice", "--reason", "r", "--owner", "dana"], tmp_path)
+    review = _run(["review", "--by", "carol"], tmp_path)
+    assert "owner        dana" in review.stdout
+    assert "reassigned" not in review.stdout
 
 
 def test_cli_reassign_requires_promote_permission(tmp_path) -> None:
