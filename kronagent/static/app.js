@@ -253,7 +253,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     <div class="request-body">
                         <div class="intel-box">
                             <p><strong>Finding Target:</strong> ${req.finding_type} (${req.finding_id})</p>
-                            <p><strong>Rationale:</strong> *${req.rationale}*</p>
+                            <p><strong>Rationale:</strong> <em>${req.rationale}</em></p>
                             <p><strong>Policy gate reason:</strong> ${req.policy_reason}</p>
                             ${req.threat_intel_summary ? `<p style="margin-top:8px;"><strong>Threat Intelligence:</strong> ${req.threat_intel_summary}</p>` : ""}
                             ${techniques ? `<div style="margin-top: 4px;">${techniques}</div>` : ""}
@@ -299,11 +299,11 @@ document.addEventListener("DOMContentLoaded", () => {
             } else if (event.stage === "policy") {
                 const action = payload.action || {};
                 const decision = payload.decision || {};
-                stageDesc = `Evaluated ${action.action_class} on ${action.target} | Disposition: **${decision.disposition}** (${decision.reason})`;
+                stageDesc = `Evaluated ${action.action_class} on ${action.target} | Disposition: <strong>${decision.disposition}</strong> (${decision.reason})`;
             } else if (event.stage === "containment") {
-                stageDesc = `Executed ${payload.action_class} on ${payload.target} | Status: **${payload.executed ? 'Executed' : 'Dry-Run/Pending'}** (${payload.detail})`;
+                stageDesc = `Executed ${payload.action_class} on ${payload.target} | Status: <strong>${payload.executed ? 'Executed' : 'Dry-Run/Pending'}</strong> (${payload.detail})`;
             } else if (event.stage === "approval") {
-                stageDesc = `Human ${payload.decision} for ${payload.action_class} on ${payload.target} by **${payload.operator_id}**`;
+                stageDesc = `Human ${payload.decision} for ${payload.action_class} on ${payload.target} by <strong>${payload.operator_id}</strong>`;
             } else if (event.stage === "governance") {
                 // `by` covers the system-authored decisions (expiry sweeps and
                 // expiry warnings have no operator behind them); operator_id is
@@ -311,15 +311,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 // operator_id alone rendered those as "by **undefined**".
                 const actor = payload.operator_id || payload.by || "system";
                 if (payload.decision === "allowlist_expired") {
-                    stageDesc = `Autonomy for ${payload.action_class} **lapsed** (TTL elapsed, not renewed) — owner was ${payload.owner || payload.promoted_by}`;
+                    stageDesc = `Autonomy for ${payload.action_class} <strong>lapsed</strong> (TTL elapsed, not renewed) — owner was ${payload.owner || payload.promoted_by}`;
                 } else if (payload.decision === "allowlist_expiry_warning") {
                     stageDesc = `Warned ${payload.owner} that ${payload.action_class} is about to lapse${payload.notified ? "" : " (delivery failed — entry still expires on schedule)"}`;
                 } else if (payload.decision === "allowlist_review") {
-                    stageDesc = `Allowlist reviewed by **${actor}** — ${(payload.flagged || []).length} of ${payload.entries} entries flagged`;
+                    stageDesc = `Allowlist reviewed by <strong>${actor}</strong> — ${(payload.flagged || []).length} of ${payload.entries} entries flagged`;
                 } else if (payload.decision === "allowlist_reassign") {
-                    stageDesc = `Ownership of ${payload.action_class} moved ${payload.previous_owner ? `from ${payload.previous_owner} ` : ""}to ${payload.owner} by **${actor}**`;
+                    stageDesc = `Ownership of ${payload.action_class} moved ${payload.previous_owner ? `from ${payload.previous_owner} ` : ""}to ${payload.owner} by <strong>${actor}</strong>`;
                 } else {
-                    stageDesc = `Allowlist modification: ${payload.decision} of ${payload.action_class} by **${actor}**`;
+                    stageDesc = `Allowlist modification: ${payload.decision} of ${payload.action_class} by <strong>${actor}</strong>`;
                 }
             } else if (event.stage === "threat_intel") {
                 stageDesc = `Threat intelligence update: *${payload.threat_intel_summary || payload.intel_summary || ''}*`;
@@ -559,7 +559,10 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById(`tab-${tabId}`).classList.add("active");
             
             state.activeTab = tabId;
-            elements.pageTitle.textContent = item.textContent.trim().split(" ")[1];
+            // The nav label is "<icon> Some Name" plus, on the queue, a count badge.
+            // Splitting on whitespace and taking [1] truncated three of the four
+            // titles ("Approval", "Audit", "Allowlist"); read the label instead.
+            elements.pageTitle.textContent = item.querySelector(".nav-label").textContent.trim();
             
             refreshData();
         });

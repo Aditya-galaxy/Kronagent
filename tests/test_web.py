@@ -395,3 +395,36 @@ def test_review_endpoint_survives_an_unknown_action_class(test_env) -> None:
     assert entry["known_action_class"] is False
     assert entry["auto_eligible"] is False
     assert entry["blast_radius"] is None
+
+
+def _static(name: str) -> str:
+    import os as _os
+    from kronagent import web as _web
+    with open(_os.path.join(_web.STATIC_DIR, name), "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
+def test_every_nav_item_has_a_label_element() -> None:
+    """The page title used to be the nav label's second whitespace-separated
+    token, which truncated three of the four tabs to "Approval", "Audit" and
+    "Allowlist". It reads a dedicated label element now, so the label has to
+    exist on every nav item."""
+    html = _static("index.html")
+    assert html.count('class="nav-item"') + html.count('class="nav-item active"') == \
+        html.count('class="nav-label"')
+
+
+def test_no_literal_markdown_in_rendered_strings() -> None:
+    """Nothing parses markdown in this console — template strings go straight
+    into innerHTML. `by **alice**` rendered with the asterisks visible."""
+    js = _static("app.js")
+    rendered = [ln for ln in js.splitlines()
+                if "stageDesc =" in ln or "<p>" in ln]
+    offenders = [ln.strip() for ln in rendered if "**" in ln and "//" not in ln]
+    assert offenders == [], f"literal markdown reaches innerHTML: {offenders}"
+
+
+def test_promote_panel_does_not_show_raw_backticks() -> None:
+    html = _static("index.html")
+    assert "requires `PROMOTE`" not in html
+    assert "<code>PROMOTE</code>" in html
