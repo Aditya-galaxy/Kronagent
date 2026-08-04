@@ -105,6 +105,31 @@ def test_unreachable_providers_are_not_reported(tmp_path) -> None:
     assert names["execution_config"].status == "pass"
 
 
+def test_a_missing_provider_sdk_blocks_a_live_deployment(tmp_path, monkeypatch) -> None:
+    """boto3 absent means every AWS containment plans perfectly and raises at
+    the moment of execution. Graded by armedness like everything else, and
+    monkeypatched rather than asserted against the machine's own packages —
+    CI installs the SDK extras in only some jobs."""
+    from kronagent import preflight as pf
+    monkeypatch.setattr(pf, "_module_available", lambda dotted: False)
+
+    live = _settings(tmp_path, dry_run=False, quarantine_security_group_id="sg-1",
+                     quarantine_nacl_id="acl-1")
+    assert _by_name(run_preflight(live))["sdk:aws"].status == "fail"
+
+    dry = _settings(tmp_path, quarantine_security_group_id="sg-1",
+                    quarantine_nacl_id="acl-1")
+    assert _by_name(run_preflight(dry))["sdk:aws"].status == "warn"
+
+
+def test_provider_sdk_present_passes(tmp_path, monkeypatch) -> None:
+    from kronagent import preflight as pf
+    monkeypatch.setattr(pf, "_module_available", lambda dotted: True)
+    settings = _settings(tmp_path, quarantine_security_group_id="sg-1",
+                         quarantine_nacl_id="acl-1")
+    assert _by_name(run_preflight(settings))["sdk:aws"].status == "pass"
+
+
 def test_a_configured_provider_surfaces_its_own_gaps(tmp_path) -> None:
     """Setting one Azure value signals intent to use Azure, so the rest of the
     Azure requirements become relevant."""
@@ -222,12 +247,12 @@ def _run(tmp_path, env_extra: dict) -> subprocess.CompletedProcess:
 
 
 @pytest.mark.parametrize("env,expected", [
-    ({"KRONAGENT_DRY_RUN": "true"}, 1),                        # warnings only
-    ({"KRONAGENT_DRY_RUN": "false",                            # armed AND coherent:
-      "KRONAGENT_QUARANTINE_SG_ID": "sg-1",                    # both AWS quarantine
-      "KRONAGENT_QUARANTINE_NACL_ID": "acl-1"}, 1),            # targets provisioned
+    ({"KRONAGENT_DRY_RUN": "true"}, 1),      # warnings only
+    ({"KRONAGENT_DRY_RUN": "false"}, 1),     # armed, but nothing configured to get wrong
 ])
 def test_cli_exit_codes(tmp_path, env, expected) -> None:
+    """No provider configured on purpose: this pins the exit-code contract, not
+    which optional SDKs happen to be installed on the machine running it."""
     assert _run(tmp_path, env).returncode == expected
 
 
