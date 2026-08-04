@@ -128,6 +128,7 @@ cp .env.example .env        # add GEMINI_API_KEY for LLM-enriched triage (option
 python3 run_slice.py                                   # replay both providers' sample findings
 python3 run_slice.py kubernetes samples/k8s_audit_events.json   # replay one provider
 
+python3 run_preflight.py                                # is this deployment safe to arm?
 python3 promote.py list                                 # inspect the auto-execute allowlist
 python3 promote.py review --by alice                    # periodic re-earn-it review (--strict for cron)
 python3 promote.py warn-expiring --dry-run              # who'd be warned that their entry is lapsing
@@ -198,7 +199,19 @@ export KRONAGENT_KUBECONFIG=/path/to/kubeconfig # required for Kubernetes contai
 export KRONAGENT_SQS_QUEUE_URL=https://sqs...   # your real GuardDuty -> EventBridge -> SQS queue
 ```
 
-Only action classes present *and unexpired* in the (audited, `promote.py`-managed) allowlist — and classified reversible/single-resource by the policy engine — will ever execute unattended. Expiry is enforced by the same read the policy engine makes on every decision, so a lapsed promotion stops granting autonomy immediately, whether or not anything has swept the store; the sweep only writes the lapse into the audit chain. Two things belong in cron:
+Only action classes present *and unexpired* in the (audited, `promote.py`-managed) allowlist — and classified reversible/single-resource by the policy engine — will ever execute unattended. Expiry is enforced by the same read the policy engine makes on every decision, so a lapsed promotion stops granting autonomy immediately, whether or not anything has swept the store; the sweep only writes the lapse into the audit chain. **Before you flip `KRONAGENT_DRY_RUN=false`, run the pre-flight.** It is the one
+command that answers "is this deployment actually safe to arm", and it fails
+loudly on the misconfiguration that is invisible in dry-run: an action class
+that is allowlisted or approvable but has no quarantine target configured. In
+dry-run that unset value renders into the planned API call as a placeholder and
+is never sent; live, the call goes out malformed, and you find out mid-incident.
+
+```bash
+python3 run_preflight.py            # 0 ready · 1 warnings · 2 fix before arming
+python3 run_preflight.py --json     # for a deploy gate or container start check
+```
+
+Two things belong in cron:
 
 ```bash
 0 9 * * *   python3 promote.py warn-expiring          # tell each owner once, before it lapses
@@ -272,7 +285,7 @@ python3 -m pip install -r requirements-dev.txt
 python3 -m pytest -q
 ```
 
-531 fully offline, deterministic unit and integration tests passing cleanly. Coverage highlights: the policy engine's safety ceiling (destructive actions proven to never auto-execute, even if allowlisted), the audit log's tamper-evidence (mutation-tested, not just asserted), the behavioral-trajectory guard (scope integrity, runaway rate, and latching — all with injected clocks rather than sleeps), a **cross-provider scope invariant** asserting that every planned action, for every provider, targets a resource its finding actually implicates (mutation-tested against a real defect this caught in the GCP planner), the approval-provider round-trip, forensics-before-containment ordering (mutation-tested), live ingestion against a real SQS server, SQLite-backed storage persistence, and EU AI Act compliance report generation.
+552 fully offline, deterministic unit and integration tests passing cleanly. Coverage highlights: the policy engine's safety ceiling (destructive actions proven to never auto-execute, even if allowlisted), the audit log's tamper-evidence (mutation-tested, not just asserted), the behavioral-trajectory guard (scope integrity, runaway rate, and latching — all with injected clocks rather than sleeps), a **cross-provider scope invariant** asserting that every planned action, for every provider, targets a resource its finding actually implicates (mutation-tested against a real defect this caught in the GCP planner), the approval-provider round-trip, forensics-before-containment ordering (mutation-tested), live ingestion against a real SQS server, SQLite-backed storage persistence, and EU AI Act compliance report generation.
 
 ---
 
@@ -295,7 +308,7 @@ This is a fully functional, enterprise-ready vertical slice:
 - **Behavioral-Trajectory Guard**: A deterministic automatic kill switch over Kronagent's *own* action stream — scope-integrity enforcement (an action may only target a resource its finding implicates) plus a runaway-rate limiter that latches a platform-wide halt. The halt is **persisted**, so it survives a process restart rather than being silently released by one, and is released only by an audited, admin-gated `halt.py clear` — which a running orchestrator observes immediately, with no restart.
 - **Enterprise Isolation & Web Console**: Multi-tenant business-unit isolation, single-page Analyst Web Console (`run_console.py`), and OCSF SIEM exporter (`run_siem_export.py`).
 - **Security & Integrity**: Cryptographic agent-to-agent non-repudiation signatures, `Permission.VIEW` REST endpoint access control, target-preservation sanitization, and continuous chaos rollback validation (`run_cloud_drill.py`).
-- **Test Suite**: 531 fully offline, deterministic unit and integration tests passing cleanly.
+- **Test Suite**: 552 fully offline, deterministic unit and integration tests passing cleanly.
 
 ### Live containment execution by provider
 

@@ -53,6 +53,7 @@ kronagent-approve = "approve:main"
 kronagent-promote = "promote:main"
 kronagent-halt = "halt:main"
 kronagent-console = "run_console:main"
+kronagent-preflight = "run_preflight:main"
 kronagent-operators = "operators:main"
 kronagent-siem-export = "run_siem_export:main"
 kronagent-compliance-report = "run_compliance_report:main"
@@ -63,7 +64,7 @@ kronagent-compliance-report = "run_compliance_report:main"
 py-modules = [
     "run_slice", "approve", "promote", "halt", "run_console",
     "operators", "run_eval", "run_drift_check", "run_siem_export",
-    "run_compliance_report", "run_cloud_drill",
+    "run_compliance_report", "run_cloud_drill", "run_preflight",
 ]
 
 [tool.setuptools.packages.find]
