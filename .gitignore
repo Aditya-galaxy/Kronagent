@@ -45,3 +45,7 @@ venv/
 
 # Claude Code harness state — not source
 .claude/
+
+# build output — the source of truth is kronagent/, not a stale copy of it
+build/
+dist/
