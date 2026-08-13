@@ -49,3 +49,7 @@ venv/
 # build output — the source of truth is kronagent/, not a stale copy of it
 build/
 dist/
+
+# Demo temp files
+.demo_tmp/
+

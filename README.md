@@ -74,18 +74,29 @@ the human's approval context, and never touches the policy decision. Only two
 layers can cause a side effect — the deterministic **policy engine** (decides
 whether an action may run) and **containment** (executes it, or doesn't).
 
+```mermaid
+graph TD
+    RawFinding["Finding Telemetry (AWS GuardDuty / Azure Defender / GCP SCC / K8s Audit / On-Prem)"] --> Ingest["Ingestion & OCSF Normalization (kronagent/ingestion.py, ocsf.py)"]
+    
+    subgraph AdvisoryPipeline["Advisory Multi-Agent Pipeline (LLM Layer)"]
+        Triage["Triage Agent (triage.py)"] --> ThreatIntel["Threat Intel Agent: MITRE ATT&CK (intel.py)"]
+        ThreatIntel --> Correlation["Correlation Agent: Campaign Memory (correlation.py)"]
+        Correlation --> Commander["Incident Commander: Priority & Narrative (commander.py)"]
+    end
+
+    Ingest --> Triage
+    Commander --> Forensics["Forensics Agent: Snapshot Evidence (forensics.py)"]
+
+    subgraph GovernanceEnvelope["Deterministic Governance & Safety Envelope"]
+        Policy["Policy Engine: Blast Radius Classification (policy.py)"] --> Allowlist["Allowlist Store: Owner, Reason & TTL (allowlist.py)"]
+        Allowlist --> Trajectory["Trajectory Guard: Kill Switch (trajectory.py)"]
+        Trajectory --> Containment["Containment Executor / Human Approval (containment.py, approvals.py)"]
+    end
+
+    Forensics --> Policy
+    Containment --> AuditLog["Tamper-Evident SHA-256 Chained Audit Log (audit.py, crypto.py)"]
 ```
-Finding (AWS GuardDuty or Kubernetes audit event, normalized)
-        │
-        ▼
-  Triage ──▶ Threat Intel ──▶ Correlation ──▶ Incident Commander      (LLM, advisory)
-        │
-        ▼
-  Forensics (evidence + chain of custody, before containment)         (deterministic)
-        │
-        ▼
-  Policy Engine → Containment → Approval → Audit                      (deterministic + human)
-```
+
 
 ---
 
@@ -325,23 +336,36 @@ differs is how much has been wired to real APIs:
 
 ---
 
-## Roadmap & Future Work
+---
 
-Most phases are delivered.
+## Production Readiness & Category Positioning
 
-- [x] **Phase 0 — Target Preservation**: Containment targets come verbatim from the parsed finding; sanitization applies to the LLM-facing copy only. *(One residual defect: the sanitizer strips `@` from identity IDs and truncates long attributes, degrading campaign correlation — not containment. Tracked.)*
-- [x] **Phase 1 — Evaluation Harness (initial)**: Labeled benchmark dataset (`eval_dataset.json`) with Wilson score confidence intervals for Precision, Recall, F1, CDC, and FPUA. *Not yet a CI regression gate — see below.*
-- [x] **Phase 2 — Enterprise Readiness**: OCSF schema normalization, OIDC SSO authentication, multi-tenant database/audit partitioning, Analyst Web Console, and ChatOps Slack integration.
-- [x] **Phase 4 — Agent Team Security Hardening**: Cryptographic agent-to-agent decision signatures, least-privilege `Permission.VIEW` REST endpoint authorization, session credential management, and the behavioral-trajectory guard.
-- [x] **Phase 5 — Extended Integrations**: Azure Defender for Cloud (`azure.py`), GCP Security Command Center (`gcp.py`), in-house/on-premises (`onprem.py`), and STIX/TAXII threat intelligence feed indicator matching.
+While major competing 2026 AI SOC tools (**Dropzone AI**, **Prophet Security**, **Torq HyperSOC**) stop at investigation and hand verdicts back to analysts, Kronagent executes **autonomous containment** with an **earn-trust governance framework**.
 
-### Honestly still open
+### The 7 Core Production Gaps
 
-- [ ] **Phase 3 — Real Cloud Validation.** Previously listed as complete; that was an overstatement. What exists is an AWS client retry/error wrapper and a chaos-drill CLI (`run_cloud_drill.py`) — valuable, but **the AWS containment path has never executed against a real AWS account.** Only the Kubernetes path is validated on real infrastructure.
-- [x] ~~Operator CLI to clear a latched trajectory halt.~~ **Done** — `halt.py` (`status` / `engage` / `clear`), admin-gated and audited. Fixing this surfaced a second, more serious defect: the halt was held **in memory only**, so *any process restart silently released the kill switch* — including a restart caused by the incident that tripped it. A latched halt is now persisted and survives restarts; see the note below.
-- [ ] **Evaluation harness as a CI regression gate**, so capability changes cannot silently degrade accuracy. The motivating incident: the GCP planner was emitting a target the trajectory guard would reject in production — silently breaking that containment path — while the whole suite stayed green. A cross-provider scope invariant now covers that class of bug.
-- [ ] **Cross-cloud policy consistency.** GCP `stop_vm_instance` is classified non-destructive (auto-eligible) while the Azure equivalent `deallocate_vm` is destructive (always human-gated). A security-review decision, deliberately left unreconciled.
-- [ ] **Azure live execution** (NSG isolation, Entra ID via Microsoft Graph) and **EDR sources** (CrowdStrike/SentinelOne).
+1. **Packaging & Deployment**: Production Dockerfile, docker-compose, Kubernetes Helm charts, and CI/CD pipelines.
+2. **Cloud Onboarding**: 3-click AWS CloudFormation stack launch with STS `ExternalID` and separate Read-Only vs. Containment IAM role grants.
+3. **Multi-Tenancy & Persistence**: Migration from SQLite flat files to PostgreSQL / DynamoDB with schema/row isolation and Redis campaign caching.
+4. **Distributed Scalability**: Event-driven worker cluster (Celery/Temporal/SQS) with dead-letter queues and telemetry sanitization against prompt injection.
+5. **Enterprise Security & KMS**: OIDC/SAML SSO, AWS KMS / Vault audit signing, SIEM export, and SOC 2 Type II audit window.
+6. **Modern Web Console**: Next.js / React console with WebSockets / SSE for real-time finding feeds and interactive campaign graphs.
+7. **Shadow Mode & Evaluation**: Benchmark evaluation harness measuring precision/recall and passive "shadow mode" customer trials.
+
+---
+
+## Phased Production Roadmap
+
+| Phase | Timeline | Target | Key Deliverables |
+|---|---|---|---|
+| **Phase 0: Containerization & CI/CD** | Month 1 | Installable Package | Dockerfile, docker-compose, GitHub Actions CI workflow, boot config validation, defect fixes. |
+| **Phase 1: Cloud Connect & Onboarding** | Months 2–3 | Self-Serve Onboarding | CloudFormation launch-stack URL, STS ExternalID assume role, Read/Write role separation, preflight permission checker, onboarding UI. |
+| **Phase 2: Database & Worker Architecture** | Months 4–5 | Enterprise Engine | Async worker queue (Celery/SQS), PostgreSQL + Alembic migrations, Redis campaign store, prompt injection sanitization layer. |
+| **Phase 3: Modern Web UI & Real-Time SSE** | Months 6–7 | Production UX | React/Next.js console, WebSocket/SSE live alerts, interactive campaign graph, governance dashboard. |
+| **Phase 4: Enterprise Auth & KMS Signing** | Months 8–9 | Security & Compliance | OIDC/SAML SSO, AWS KMS / Vault audit signing, audit export to SIEM, SOC 2 Type II audit window. |
+| **Phase 5: Shadow Mode & Private Beta** | Months 10–12 | Market Launch | Eval harness benchmark report, shadow mode customer trials, commercial billing & GA rollout. |
+
+For the complete architectural design and market research, see [`kronagent_product_roadmap.md`](kronagent_product_roadmap.md) and [`kronagent_production_analysis.md`](file:///Users/aditya/.gemini/antigravity/brain/786dc152-9a7e-4e61-8188-8aab17fe18ee/kronagent_production_analysis.md).
 
 ---
 

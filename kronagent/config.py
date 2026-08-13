@@ -45,6 +45,12 @@ _PREFIX = "KRONAGENT_"
 _LEGACY_PREFIX = "AEG" + "IS_"
 
 
+class ConfigError(ValueError):
+    """Raised when platform configuration is invalid or unsafe."""
+    pass
+
+
+
 def _getenv(name: str, default: str | None = None) -> str | None:
     val = os.environ.get(name)
     if val is not None:
@@ -239,3 +245,26 @@ class Settings:
             slack_channel_id=os.getenv("KRONAGENT_SLACK_CHANNEL_ID", ""),
             slack_user_mapping=slack_user_mapping,
         )
+
+    def validate(self) -> list[str]:
+        """Validate configuration settings and return a list of actionable error strings."""
+        errors: list[str] = []
+        if self.sqs_wait_seconds < 0 or self.sqs_wait_seconds > 20:
+            errors.append(f"KRONAGENT_SQS_WAIT_SECONDS ({self.sqs_wait_seconds}) must be between 0 and 20.")
+        if self.min_severity_for_containment < 0.0 or self.min_severity_for_containment > 10.0:
+            errors.append(f"KRONAGENT_MIN_SEVERITY ({self.min_severity_for_containment}) must be between 0.0 and 10.0.")
+        if self.max_workers < 1:
+            errors.append(f"KRONAGENT_MAX_WORKERS ({self.max_workers}) must be at least 1.")
+        if self.trajectory_window_seconds <= 0:
+            errors.append(f"KRONAGENT_TRAJECTORY_WINDOW_SECONDS ({self.trajectory_window_seconds}) must be positive.")
+        if self.trajectory_max_auto_executions < 1:
+            errors.append(f"KRONAGENT_TRAJECTORY_MAX_AUTO ({self.trajectory_max_auto_executions}) must be at least 1.")
+        return errors
+
+    def validate_or_raise(self) -> None:
+        """Validate configuration settings and raise ConfigError if any setting is invalid."""
+        errors = self.validate()
+        if errors:
+            msg = "Invalid Kronagent configuration:\n" + "\n".join(f"  - {e}" for e in errors)
+            raise ConfigError(msg)
+

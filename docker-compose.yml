@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  kronagent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        EXTRAS: "all"
+    image: kronagent:latest
+    container_name: kronagent-app
+    ports:
+      - "8000:8000"
+    environment:
+      - KRONAGENT_DRY_RUN=true
+      - KRONAGENT_PORT=8000
+      - KRONAGENT_HOST=0.0.0.0
+      - KRONAGENT_DB_PATH=/var/lib/kronagent/kronagent.db
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    volumes:
+      - kronagent-data:/var/lib/kronagent
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/status', timeout=4).status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  kronagent-data:
