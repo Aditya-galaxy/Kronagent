@@ -365,7 +365,7 @@ While major competing 2026 AI SOC tools (**Dropzone AI**, **Prophet Security**, 
 | **Phase 4: Enterprise Auth & KMS Signing** | Security & Compliance | OIDC/SAML SSO, AWS KMS / Vault audit signing, audit export to SIEM, SOC 2 Type II audit window. |
 | **Phase 5: Shadow Mode & Private Beta** | Market Launch | Eval harness benchmark report, shadow mode customer trials, commercial billing & GA rollout. |
 
-For the complete architectural design and market research, see [`kronagent_product_roadmap.md`](kronagent_product_roadmap.md) and [`kronagent_production_analysis.md`](file:///Users/aditya/.gemini/antigravity/brain/786dc152-9a7e-4e61-8188-8aab17fe18ee/kronagent_production_analysis.md).
+For the complete architectural design and safety envelope rationale, see [`agent-team-architecture.md`](agent-team-architecture.md) and [`docs/use-cases.md`](docs/use-cases.md).
 
 ---
 
