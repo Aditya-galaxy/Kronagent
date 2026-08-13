@@ -178,14 +178,23 @@ envelope. Those stay deterministic — that's the safety ceiling.
 
 ---
 
-## 6. Current Status & Next Steps
+## 6. Current Status & Production Milestones
 
-The orchestrator and the multi-agent SOC team (Triage, Threat Intel, Correlation, Incident Commander, and Forensics) have been fully implemented, integrated, and verified end-to-end. Campaign memory and approvals are backed by persistent storage databases, and compliance manifests (for EU AI Act Articles 12/14) are generated automatically from the cryptographically verified audit log.
+The orchestrator and the multi-agent SOC team (Triage, Threat Intel, Correlation, Incident Commander, and Forensics) are fully implemented, integrated, and verified end-to-end. Campaign memory and approvals are backed by persistent storage databases, and compliance manifests (for EU AI Act Articles 12/14) are generated automatically from the cryptographically verified audit log.
 
-Moving forward, development is focused on the next architectural milestones:
-- **Telemetry Pre-processing/Sanitization:** Implement validation layers to detect and strip potential prompt injection sequences from incoming alert telemetry.
-- **Durable Infrastructure Testbed:** Deploy local cluster/cloud sandboxes (Kind/LocalStack) to validate active containment execution paths against running workloads.
-- **KMS/HSM Cryptographic Signatures:** Harden the append-only audit log and forensic custody chains with hardware security module or KMS keys to establish an immutable, verifiable chain of custody.
+### Completed Production Milestones
+
+- [x] **Containerization & CI/CD Pipeline (Phase 0)**: Multi-stage `Dockerfile`, `docker-compose.yml` local sandbox environment, GitHub Actions CI workflow, and boot-time configuration validation (`ConfigError`).
+- [x] **Self-Serve Cloud Onboarding (Phase 1)**: Standalone CloudFormation templates (`deploy/cloudformation/`) supporting zero-key STS `ExternalId` cross-account role assumption with `Observe` (read-only) vs. `Contain` (remediation) permission separation.
+- [x] **Telemetry Pre-Processing & Prompt-Injection Shielding (Phase 2)**: Control-token stripping (`<|im_start|>`, `[INST]`, `system override`, `ignore guardrails`), secret redaction, and reversible placeholder masking (`sanitize_telemetry()`).
+- [x] **Real-Time Event Streaming (Phase 3)**: Web console Server-Sent Events (`/api/events/stream`) delivering live status, audit events, and pending approval notifications.
+
+### Upcoming Milestones
+
+- **PostgreSQL / DynamoDB Storage Migration**: Transitioning SQLite stores to distributed database backends for high-availability multi-tenant deployments.
+- **KMS/HSM Cryptographic Signatures**: Hardening the append-only audit log and forensic custody chains with hardware security module or KMS keys to establish an immutable, verifiable chain of custody.
+- **Durable Infrastructure Testbed**: Validating active containment execution paths against running cloud/K8s workloads.
+
 
 ---
 
