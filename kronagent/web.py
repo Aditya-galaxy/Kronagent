@@ -17,7 +17,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel
 
 from fastapi import FastAPI, HTTPException, status, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
@@ -154,6 +154,43 @@ def get_status(request: Request) -> dict[str, Any]:
         "kill_switch": settings.kill_switch,
         "integrity_verified": verified
     }
+
+
+@app.get("/api/events/stream")
+async def stream_events(request: Request, once: bool = False) -> StreamingResponse:
+    """Stream real-time system events, audit records, and approval queue updates via Server-Sent Events (SSE)."""
+    import asyncio
+    check_view_permission(request)
+    tenant_id = resolve_tenant_id(request)
+
+    async def event_generator():
+        # Connection ping event
+        yield f"event: ping\ndata: {json.dumps({'status': 'connected', 'tenant_id': tenant_id, 'timestamp': now_iso()})}\n\n"
+        
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                store = get_approval_store(tenant_id)
+                pending_count = len([r for r in store.list() if r.status == "pending"])
+                payload = {
+                    "event_type": "heartbeat",
+                    "tenant_id": tenant_id,
+                    "dry_run": settings.dry_run,
+                    "kill_switch": settings.kill_switch,
+                    "pending_approvals": pending_count,
+                    "timestamp": now_iso()
+                }
+                yield f"event: status\ndata: {json.dumps(payload)}\n\n"
+                if once:
+                    break
+                await asyncio.sleep(15)
+        except asyncio.CancelledError:
+            pass
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 
 
 @app.get("/api/approvals")

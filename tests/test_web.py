@@ -428,3 +428,14 @@ def test_promote_panel_does_not_show_raw_backticks() -> None:
     html = _static("index.html")
     assert "requires `PROMOTE`" not in html
     assert "<code>PROMOTE</code>" in html
+
+
+def test_events_stream_endpoint(test_env) -> None:
+    client, _, _, _ = test_env
+    res = client.get("/api/events/stream?once=true")
+    assert res.status_code == 200
+    assert "text/event-stream" in res.headers["content-type"]
+    assert "event: ping" in res.text
+    assert "event: status" in res.text
+
+
