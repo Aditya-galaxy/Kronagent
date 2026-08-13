@@ -225,8 +225,8 @@ def export_siem(request: Request) -> dict[str, Any]:
                 evt = to_ocsf_event(record)
                 if evt is not None:
                     ocsf_events.append(evt)
-            except Exception:
-                continue
+            except (json.JSONDecodeError, TypeError, KeyError):
+                pass
 
     return {
         "tenant_id": tenant_id,

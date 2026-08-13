@@ -67,6 +67,7 @@ def sqs_server():
         server = ThreadedMotoServer(port=0)  # port 0 -> OS picks a free port
         server.start()
         host, port = server.get_host_and_port()
+        host = "127.0.0.1" if host == "0.0.0.0" else host
         endpoint = f"http://{host}:{port}"
         client = boto3.client("sqs", region_name=REGION, endpoint_url=endpoint,
                               aws_access_key_id="testing", aws_secret_access_key="testing")
