@@ -430,12 +430,23 @@ def test_promote_panel_does_not_show_raw_backticks() -> None:
     assert "<code>PROMOTE</code>" in html
 
 
-def test_events_stream_endpoint(test_env) -> None:
-    client, _, _, _ = test_env
-    res = client.get("/api/events/stream?once=true")
+def test_siem_export_endpoint(test_env) -> None:
+    client, _, _, audit = test_env
+    # Record a test audit record
+    from kronagent.schemas import AuditRecord
+    import asyncio
+    asyncio.run(audit.record(AuditRecord(
+        finding_id="f-siem-1",
+        stage="triage",
+        payload={"threat": True, "severity": 8.0, "reason": "High severity exfil"}
+    )))
+
+    res = client.get("/api/export/siem")
     assert res.status_code == 200
-    assert "text/event-stream" in res.headers["content-type"]
-    assert "event: ping" in res.text
-    assert "event: status" in res.text
+    data = res.json()
+    assert data["verified"] is True
+    assert data["total_events"] >= 1
+    assert any(e.get("finding_id") == "f-siem-1" or "f-siem-1" in str(e) for e in data["events"])
+
 
 

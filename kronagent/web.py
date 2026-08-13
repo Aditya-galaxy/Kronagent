@@ -29,6 +29,7 @@ from .policy import PolicyEngine
 from .containment import ContainmentExecutor
 from .providers import build_containment_adapters
 from .schemas import AuditRecord, PolicyDecision, BlastRadius, ActionClass
+from .ocsf import to_ocsf_event
 from .orchestrator import get_tenant_path
 
 
@@ -189,6 +190,51 @@ async def stream_events(request: Request, once: bool = False) -> StreamingRespon
             pass
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.get("/api/export/siem")
+def export_siem(request: Request) -> dict[str, Any]:
+    """Verify audit log integrity and return OCSF-compliant SIEM events for the active tenant."""
+    check_view_permission(request)
+    tenant_id = resolve_tenant_id(request)
+    log_path = get_tenant_path(settings.audit_log_path, tenant_id)
+
+    if not os.path.exists(log_path):
+        return {
+            "tenant_id": tenant_id,
+            "verified": True,
+            "total_events": 0,
+            "events": []
+        }
+
+    verified, broken_line = AuditLog.verify(log_path)
+    if not verified:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cryptographic audit log verification failed at line {broken_line}. Export aborted."
+        )
+
+    ocsf_events = []
+    with open(log_path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+                evt = to_ocsf_event(record)
+                if evt is not None:
+                    ocsf_events.append(evt)
+            except Exception:
+                continue
+
+    return {
+        "tenant_id": tenant_id,
+        "verified": True,
+        "total_events": len(ocsf_events),
+        "events": ocsf_events
+    }
+
 
 
 
