@@ -1,0 +1,65 @@
+replicaCount: 1
+
+image:
+  repository: kronagent
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "kronagent-sa"
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: kronagent.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+config:
+  dryRun: true
+  killSwitch: false
+  minSeverity: "4.0"
+  awsRegion: "us-east-1"
+  sqsWaitSeconds: 20
+  dbPath: "/var/lib/kronagent/kronagent.db"
+  auditPath: "/var/lib/kronagent/kronagent_audit.jsonl"
+  approvalPath: "/var/lib/kronagent/kronagent_approvals.json"
+  allowlistPath: "/var/lib/kronagent/kronagent_allowlist.json"

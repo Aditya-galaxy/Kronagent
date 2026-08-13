@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kronagent.fullname" . }}
+  labels:
+    {{- include "kronagent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kronagent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kronagent.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: KRONAGENT_DRY_RUN
+              value: {{ .Values.config.dryRun | quote }}
+            - name: KRONAGENT_KILL_SWITCH
+              value: {{ .Values.config.killSwitch | quote }}
+            - name: KRONAGENT_MIN_SEVERITY
+              value: {{ .Values.config.minSeverity | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.config.awsRegion | quote }}
+            - name: KRONAGENT_SQS_WAIT_SECONDS
+              value: {{ .Values.config.sqsWaitSeconds | quote }}
+            - name: KRONAGENT_DB_PATH
+              value: {{ .Values.config.dbPath | quote }}
+            - name: KRONAGENT_AUDIT_PATH
+              value: {{ .Values.config.auditPath | quote }}
+            - name: KRONAGENT_APPROVAL_PATH
+              value: {{ .Values.config.approvalPath | quote }}
+            - name: KRONAGENT_ALLOWLIST_PATH
+              value: {{ .Values.config.allowlistPath | quote }}
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

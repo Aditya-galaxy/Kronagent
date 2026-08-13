@@ -17,6 +17,7 @@ services:
       - KRONAGENT_HOST=0.0.0.0
       - KRONAGENT_DB_PATH=/var/lib/kronagent/kronagent.db
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - KRONAGENT_SQS_ENDPOINT_URL=${KRONAGENT_SQS_ENDPOINT_URL:-http://sqs-emulator:5001}
     volumes:
       - kronagent-data:/var/lib/kronagent
     restart: unless-stopped
@@ -25,6 +26,21 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  sqs-emulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        EXTRAS: "all"
+    image: kronagent:latest
+    container_name: kronagent-sqs-emulator
+    command: ["python3", "testbed/sqs_emulator.py", "serve", "--host", "0.0.0.0", "--port", "5001"]
+    ports:
+      - "5001:5001"
+    profiles:
+      - sandbox
+    restart: unless-stopped
 
 volumes:
   kronagent-data:

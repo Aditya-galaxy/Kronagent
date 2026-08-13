@@ -1,0 +1,16 @@
+apiVersion: v2
+name: kronagent
+description: Helm chart for Kronagent — Autonomous AI Threat-Defense with Graduated Autonomy
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - security
+  - threat-defense
+  - ai-soc
+  - incident-response
+  - kubernetes
+home: https://kronagent.com
+maintainers:
+  - name: Kronagent Team
+    email: support@kronagent.com
