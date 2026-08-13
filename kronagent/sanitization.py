@@ -51,14 +51,21 @@ from .model import Finding, ResourceRef
 # Regex for common jailbreak/override keywords to strip or neutralize
 _INJECTION_KEYWORDS = [
     r"(?i)ignore\s+(?:all\s+|previous\s+)?instructions",
+    r"(?i)ignore\s+(?:all\s+)?guardrails",
     r"(?i)override\s+policy",
+    r"(?i)system\s+override",
     r"(?i)you\s+are\s+now",
     r"(?i)system\s+prompt",
     r"(?i)bypass\s+security",
     r"(?i)mark\s+as\s+safe",
     r"(?i)false\s+alarm",
     r"(?i)set\s+severity\s+to\s+0",
+    r"<\|im_start\|>",
+    r"<\|im_end\|>",
+    r"\[INST\]",
+    r"\[/INST\]",
 ]
+
 
 # Credentials that may appear in telemetry. These are redacted irreversibly:
 # unlike a resource id, there is no downstream use for the real value, so
@@ -268,3 +275,13 @@ def sanitize_finding(finding: Finding) -> Finding:
     context — otherwise the operator reads placeholders.
     """
     return mask_finding(finding)[0]
+
+
+def sanitize_telemetry(finding: Finding, ctx: Optional[MaskingContext] = None) -> tuple[Finding, MaskingContext]:
+    """Unified entry point for full telemetry sanitization.
+
+    Performs secret redaction, prompt-injection neutralizing, and placeholder
+    resource masking on an incoming finding.
+    """
+    return mask_finding(finding, ctx)
+
