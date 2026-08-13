@@ -356,14 +356,14 @@ While major competing 2026 AI SOC tools (**Dropzone AI**, **Prophet Security**, 
 
 ## Phased Production Roadmap
 
-| Phase | Timeline | Target | Key Deliverables |
-|---|---|---|---|
-| **Phase 0: Containerization & CI/CD** | Month 1 | Installable Package | Dockerfile, docker-compose, GitHub Actions CI workflow, boot config validation, defect fixes. |
-| **Phase 1: Cloud Connect & Onboarding** | Months 2–3 | Self-Serve Onboarding | CloudFormation launch-stack URL, STS ExternalID assume role, Read/Write role separation, preflight permission checker, onboarding UI. |
-| **Phase 2: Database & Worker Architecture** | Months 4–5 | Enterprise Engine | Async worker queue (Celery/SQS), PostgreSQL + Alembic migrations, Redis campaign store, prompt injection sanitization layer. |
-| **Phase 3: Modern Web UI & Real-Time SSE** | Months 6–7 | Production UX | React/Next.js console, WebSocket/SSE live alerts, interactive campaign graph, governance dashboard. |
-| **Phase 4: Enterprise Auth & KMS Signing** | Months 8–9 | Security & Compliance | OIDC/SAML SSO, AWS KMS / Vault audit signing, audit export to SIEM, SOC 2 Type II audit window. |
-| **Phase 5: Shadow Mode & Private Beta** | Months 10–12 | Market Launch | Eval harness benchmark report, shadow mode customer trials, commercial billing & GA rollout. |
+| Phase | Target | Key Deliverables |
+|---|---|---|
+| **Phase 0: Containerization & CI/CD** | Installable Package | Dockerfile, docker-compose, GitHub Actions CI workflow, boot config validation, defect fixes. |
+| **Phase 1: Cloud Connect & Onboarding** | Self-Serve Onboarding | CloudFormation launch-stack URL, STS ExternalID assume role, Read/Write role separation, preflight permission checker, onboarding UI. |
+| **Phase 2: Database & Worker Architecture** | Enterprise Engine | Async worker queue (Celery/SQS), PostgreSQL + Alembic migrations, Redis campaign store, prompt injection sanitization layer. |
+| **Phase 3: Modern Web UI & Real-Time SSE** | Production UX | React/Next.js console, WebSocket/SSE live alerts, interactive campaign graph, governance dashboard. |
+| **Phase 4: Enterprise Auth & KMS Signing** | Security & Compliance | OIDC/SAML SSO, AWS KMS / Vault audit signing, audit export to SIEM, SOC 2 Type II audit window. |
+| **Phase 5: Shadow Mode & Private Beta** | Market Launch | Eval harness benchmark report, shadow mode customer trials, commercial billing & GA rollout. |
 
 For the complete architectural design and market research, see [`kronagent_product_roadmap.md`](kronagent_product_roadmap.md) and [`kronagent_production_analysis.md`](file:///Users/aditya/.gemini/antigravity/brain/786dc152-9a7e-4e61-8188-8aab17fe18ee/kronagent_production_analysis.md).
 

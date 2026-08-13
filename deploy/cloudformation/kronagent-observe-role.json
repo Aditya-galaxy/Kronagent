@@ -1,0 +1,102 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Kronagent Read-Only (Observe) Cross-Account IAM Role for Threat Detection & Triage",
+  "Parameters": {
+    "KronagentAccountId": {
+      "Type": "String",
+      "Description": "AWS Account ID of the Kronagent platform (e.g. 123456789012)",
+      "AllowedPattern": "^\\d{12}$"
+    },
+    "ExternalId": {
+      "Type": "String",
+      "Description": "Unique secret External ID provided by Kronagent for your tenant",
+      "MinLength": 16,
+      "MaxLength": 1224
+    },
+    "RoleName": {
+      "Type": "String",
+      "Default": "KronagentObserveRole",
+      "Description": "Name of the IAM role to create"
+    }
+  },
+  "Resources": {
+    "KronagentObserveRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": { "Ref": "RoleName" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": { "Fn::Sub": "arn:aws:iam::${KronagentAccountId}:root" }
+              },
+              "Action": "sts:AssumeRole",
+              "Condition": {
+                "StringEquals": {
+                  "sts:ExternalId": { "Ref": "ExternalId" }
+                }
+              }
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "KronagentObservePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "ReadGuardDutyFindings",
+                  "Effect": "Allow",
+                  "Action": [
+                    "guardduty:GetFindings",
+                    "guardduty:ListFindings",
+                    "guardduty:ListDetectors",
+                    "guardduty:GetDetector"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "DescribeImplicatedResources",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:DescribeInstances",
+                    "ec2:DescribeSecurityGroups",
+                    "ec2:DescribeNetworkAcls",
+                    "ec2:DescribeVpcs"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "DescribeImplicatedPrincipals",
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:GetUser",
+                    "iam:ListAccessKeys",
+                    "iam:GetRole",
+                    "iam:ListAttachedUserPolicies"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "ConfirmOwnIdentity",
+                  "Effect": "Allow",
+                  "Action": "sts:GetCallerIdentity",
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "RoleArn": {
+      "Description": "ARN of the created Kronagent Observe IAM Role. Copy this back to Kronagent console.",
+      "Value": { "Fn::GetAtt": ["KronagentObserveRole", "Arn"] }
+    }
+  }
+}
