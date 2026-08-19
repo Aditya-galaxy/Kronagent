@@ -284,7 +284,7 @@ demo_trajectory.py     adversarial trajectory-guard walkthrough
 testbed/               local SQS emulator (no AWS account, no Docker)
 deploy/                IAM policies, EventBridge/SQS wiring docs
 samples/                real-schema sample findings (AWS, Azure, GCP, K8s, on-prem)
-tests/                 338 tests, offline, ~16s
+tests/                 602 tests, offline, ~23s
 ```
 
 ---

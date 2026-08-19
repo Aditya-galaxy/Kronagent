@@ -90,6 +90,35 @@ jobs:
             exit 1
           fi
 
+  eval:
+    # The measured-accuracy regression gate. The unit suite proves the pipeline
+    # behaves correctly on the cases it was written for; this scores it against
+    # a labeled dataset and fails the build if the whole-pipeline containment
+    # decision degrades.
+    #
+    # It gates CDC (containment-decision correctness) and FPUA (benign findings
+    # that led to autonomous action), NOT triage F1. The offline mock answers
+    # triage with the dataset's own labels, so F1 is ~100% by construction and
+    # would be a check that cannot fail — see the gate in run_eval.py. CDC and
+    # FPUA score the deterministic policy path, which the mock does not supply,
+    # and were mutation-tested: breaking the auto-execute route drops CDC from
+    # 100% to 60% and fails this job.
+    name: evaluation gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          pip install ".[dev]"
+      - name: Score the pipeline against the labeled dataset
+        # No API key: the harness runs offline against the mock by default, so
+        # this job is deterministic and costs nothing per run.
+        run: python run_eval.py
+
   lint:
     name: lint
     runs-on: ubuntu-latest
