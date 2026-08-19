@@ -122,9 +122,21 @@ _ACTION_PROPERTIES: dict[ActionClass, dict] = {
         "destructive": False,
     },
     ActionClass.STOP_VM_INSTANCE: {
+        # Reclassified 2026-07-29 from destructive=False. Stopping a VM takes a
+        # running workload offline and discards volatile memory — the same shape
+        # as SCALE_DEPLOYMENT_ZERO and the Azure DEALLOCATE_VM, both of which are
+        # destructive. It was the only "workload goes down" action classified as
+        # auto-eligible, which meant a single allowlist entry could stop GCP
+        # production VMs unattended while the identical Azure action required a
+        # human. Discarding volatile memory also destroys the evidence the
+        # forensics stage runs first to preserve.
+        #
+        # BEHAVIOUR CHANGE: an operator who had promoted stop_vm_instance now
+        # sees it routed to approval. That is the intended direction — the
+        # policy table is the ceiling, and this raises it.
         "reversible": True,
         "blast_radius": BlastRadius.SINGLE_RESOURCE,
-        "destructive": False,
+        "destructive": True,
     },
 
     # --- Azure ---
