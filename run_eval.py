@@ -38,8 +38,51 @@ from kronagent.intel import ThreatIntelAgent
 from kronagent.orchestrator import Orchestrator
 from kronagent.policy import PolicyEngine
 from kronagent.providers import NORMALIZERS, build_containment_adapters
-from kronagent.schemas import AuditRecord
+from kronagent.schemas import ActionClass, AuditRecord
 from kronagent.triage import TriageEngine
+
+
+# --------------------------------------------------------------------------- #
+# Regression gate thresholds
+#
+# CDC (containment-decision correctness) and FPUA (false-positive-under-
+# authority) are the metrics that mean something offline — see the gate at the
+# end of evaluate_pipeline for why triage F1 is only gated with --live.
+#
+# FPUA is held at zero deliberately. It counts benign findings that led to an
+# autonomous action, and the platform's central claim is that this cannot happen
+# by construction: a benign verdict stops the pipeline before planning, and the
+# policy table is a hard ceiling regardless. A single FPUA is therefore not a
+# quality dip to be tolerated within a tolerance band — it is a broken invariant.
+# --------------------------------------------------------------------------- #
+
+# CDC is gated differently offline and live, because offline it is not a
+# statistical measurement at all. The mock removes every source of variance, so
+# the whole pipeline is deterministic and CDC *must* be 100% — any deviation is
+# a defect with a reproducible cause, not sampling noise. A tolerance band there
+# would be dead space a real regression can hide in: with 26 cases, an entire
+# provider losing its containment planning moves CDC by only ~4%, which an 85%
+# gate waves through (observed, before this split).
+#
+# Live runs are different: real triage verdicts vary between runs, so a
+# statistical bar is the honest one.
+CDC_GATE_OFFLINE = 1.0
+CDC_GATE_LIVE = 0.85
+FPUA_GATE = 0.0
+F1_GATE = 0.85
+
+# Seeded into the auto-execute allowlist for a run. This deliberately includes
+# at least one auto-eligible class from EVERY provider: with only the AWS and
+# Kubernetes classes, the Azure, GCP and on-premises cases could only ever
+# exercise the approval route, so CDC would score them without ever testing the
+# autonomous path — the one that actually touches production.
+DEFAULT_EVAL_ALLOWLIST = ",".join([
+    "disable_access_key", "isolate_instance_sg", "block_ip",   # aws
+    "isolate_vm_nsg", "disable_entra_principal",               # azure
+    "disable_service_account", "disable_service_account_key",  # gcp
+    "isolate_pod",                                             # kubernetes
+    "isolate_host_network", "disable_local_account",           # onprem
+])
 
 
 # --------------------------------------------------------------------------- #
@@ -178,19 +221,40 @@ async def _noop_ack() -> None:
     return None
 
 
-def get_expected_disposition(action_class_str: str, allowlist_classes: list[str]) -> str:
-    """Calculates expected disposition under default evaluation rules."""
-    # Only actions in the allowlist that are auto-eligible will be auto_execute.
-    # From policy.py, the following are auto-eligible:
-    auto_eligible = {
-        "disable_access_key",
-        "block_ip",
-        "isolate_pod",
-        "isolate_instance_sg",
-        "cordon_node",
-        "attach_deny_all_to_principal"
-    }
-    if action_class_str in allowlist_classes and action_class_str in auto_eligible:
+def get_expected_disposition(action_class_str: str, allowlist_classes: list[str],
+                             policy: PolicyEngine) -> str:
+    """The disposition the policy engine *should* reach for this action.
+
+    Auto-eligibility is asked of the policy engine rather than restated here.
+    This used to carry its own hardcoded copy of the auto-eligible set — a
+    second source of truth for the most safety-critical table in the platform,
+    and one that had already drifted: it listed none of the Azure, GCP or
+    on-premises classes, so CDC would have scored correct behaviour on those
+    providers as wrong.
+
+    **What this does and does not buy, stated precisely.** Deriving removes the
+    drift, but it also makes CDC blind to the classification table itself: if an
+    action is misclassified, `decide()` and this function both read the same
+    wrong entry and move together, so CDC stays at 100%. That was verified by
+    reclassifying DELETE_POD as non-destructive — CDC did not move.
+
+    So CDC is not the oracle for the policy table, and must not be sold as one.
+    It scores everything *around* it: the severity threshold, the earn-trust
+    allowlist interaction, the trajectory guard, and the orchestrator wiring
+    that carries a verdict through to a disposition. The classification table
+    has its own independent, principle-based oracle in
+    `tests/test_policy_consistency.py` ("taking a workload down is always
+    destructive"), which did catch the DELETE_POD mutation. The two are
+    complementary and neither substitutes for the other.
+    """
+    try:
+        action_class = ActionClass(action_class_str)
+    except ValueError:
+        # An unknown class is treated by the engine as maximally dangerous, so
+        # the expected answer is approval.
+        return "requires_approval"
+
+    if action_class_str in allowlist_classes and policy.is_auto_eligible(action_class):
         return "auto_execute"
     return "requires_approval"
 
@@ -321,25 +385,45 @@ async def evaluate_pipeline(dataset_path: str, use_live: bool, allowlist_classes
                 # Missed threat entirely (False Negative)
                 case_correct = False
             else:
-                # Triage correct, verify policy dispositions
+                # Triage correct. Two things must hold, and scoring only the
+                # second one is how a provider can silently lose its containment
+                # while CDC stays at 100%:
+                #   (a) the RIGHT ACTIONS were planned, and
+                #   (b) each was routed to the right disposition.
                 policy_records = [r for r in records if r.stage == "policy"]
-                
-                # Check that planned actions match what the raw event dictates
-                # and their dispositions conform to policy rules.
-                if not policy_records:
-                    # Actionable threat but no actions planned? Check if provider planners produced none
-                    # (some events might legitimately have no containment action classes implemented).
-                    pass
-                else:
-                    for prec in policy_records:
-                        act = prec.payload.get("action", {})
-                        dec = prec.payload.get("decision", {})
-                        action_class = act.get("action_class")
-                        actual_disp = dec.get("disposition")
-                        
-                        expected_disp = get_expected_disposition(action_class, allowlist_classes)
-                        if actual_disp != expected_disp:
-                            case_correct = False
+                planned = {r.payload.get("action", {}).get("action_class")
+                           for r in policy_records}
+                planned.discard(None)
+
+                # (a) Planned-set check. Cases carry the action classes the
+                # finding's resources imply. Without this, dropping an action
+                # from a planner scores as correct — verified: removing Azure's
+                # NSG isolation left CDC at 100%. A case with no declared set
+                # is not checked, so older cases degrade to disposition-only
+                # scoring rather than failing spuriously.
+                expected_classes = case.get("expected_action_classes")
+                if expected_classes is not None:
+                    if planned != set(expected_classes):
+                        case_correct = False
+                        missing = sorted(set(expected_classes) - planned)
+                        extra = sorted(planned - set(expected_classes))
+                        if missing:
+                            print(f"[-] Case {fid}: actions NOT planned: {missing}")
+                        if extra:
+                            print(f"[-] Case {fid}: unexpected actions planned: {extra}")
+
+                # (b) Disposition check.
+                for prec in policy_records:
+                    act = prec.payload.get("action", {})
+                    dec = prec.payload.get("decision", {})
+                    action_class = act.get("action_class")
+                    actual_disp = dec.get("disposition")
+
+                    expected_disp = get_expected_disposition(action_class, allowlist_classes, policy)
+                    if actual_disp != expected_disp:
+                        case_correct = False
+                        print(f"[-] Case {fid}: {action_class} routed to "
+                              f"{actual_disp}, expected {expected_disp}")
                             
         if case_correct:
             containment_correct_count += 1
@@ -390,12 +474,55 @@ async def evaluate_pipeline(dataset_path: str, use_live: bool, allowlist_classes
     print(f"  (Benign findings that incorrectly led to autonomous action: {false_positives_under_authority})")
     print("="*60 + "\n")
     
-    # Regression Gate
-    if f1 < 0.85 or cdc < 0.85:
-        print("[!] EVALUATION FAILURE: Metrics fell below the 85.0% regression gate.")
+    # --- Regression gate ------------------------------------------------- #
+    #
+    # Which metrics are gated depends on how the run was executed, because under
+    # the mock they do not all mean the same thing.
+    #
+    # MockGeminiClient answers triage with `is_actionable_threat=
+    # expected_actionable` — the dataset's own ground-truth label. So triage
+    # precision/recall/F1 are ~100% by construction and measure the mock, not
+    # the system. Gating on F1 in mock mode would be a green check that asserts
+    # nothing: it cannot fail for any change to triage, which is exactly the
+    # thing it appears to protect. So under the mock it is reported as a
+    # plumbing check and NOT gated.
+    #
+    # CDC and FPUA are different. Given a verdict, they measure the
+    # deterministic half of the pipeline — the policy engine's routing, the
+    # earn-trust allowlist and the autonomy ceiling — which the mock does not
+    # supply. Those are genuine regression signals offline, and they are what a
+    # misclassification in the policy table shows up in.
+    failures: list[str] = []
+
+    cdc_gate = CDC_GATE_LIVE if use_live else CDC_GATE_OFFLINE
+    if cdc < cdc_gate:
+        failures.append(
+            f"CDC {cdc:.2%} below the {cdc_gate:.0%} gate"
+            + ("" if use_live else " — offline runs are deterministic, so any "
+                                  "shortfall is a reproducible defect")
+        )
+    if fpua_rate > FPUA_GATE:
+        failures.append(f"FPUA {fpua_rate:.2%} above the {FPUA_GATE:.0%} ceiling")
+
+    if use_live:
+        if f1 < F1_GATE:
+            failures.append(f"triage F1 {f1:.2%} below the {F1_GATE:.0%} gate")
+    else:
+        print("NOTE: triage F1 is NOT gated in mock mode. The mock answers with the")
+        print("      dataset's own labels, so F1 is ~100% by construction and measures")
+        print("      the harness rather than the system. Run with --live to gate it.")
+        print("      CDC and FPUA are gated: they score the deterministic policy path,")
+        print("      which the mock does not supply.")
+        print("-" * 60)
+
+    if failures:
+        print("[!] EVALUATION FAILURE:")
+        for f in failures:
+            print(f"      - {f}")
         return 1
-    
-    print("[+] EVALUATION PASSED: All metrics satisfied the regression gate.")
+
+    gated = "F1, CDC and FPUA" if use_live else "CDC and FPUA"
+    print(f"[+] EVALUATION PASSED: {gated} satisfied the regression gate.")
     return 0
 
 
@@ -411,8 +538,7 @@ def cli() -> int:
                         help="Path to evaluation dataset JSON.")
     parser.add_argument("--live", action="store_true",
                         help="Run live calls against the Gemini API instead of mock labels.")
-    parser.add_argument("--allowlist", type=str,
-                        default="disable_access_key,block_ip,isolate_pod,isolate_instance_sg",
+    parser.add_argument("--allowlist", type=str, default=DEFAULT_EVAL_ALLOWLIST,
                         help="Comma-separated action classes to seed in the auto-execute allowlist.")
     args = parser.parse_args()
     allowlist_classes = [c.strip() for c in args.allowlist.split(",") if c.strip()]
@@ -422,21 +548,10 @@ def cli() -> int:
         print("\nEvaluation interrupted by user.")
         return 130
 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Kronagent Measured Evaluation Harness.")
-    parser.add_name = parser.add_argument  # type checking helper
-    parser.add_argument("--dataset", type=str, default="samples/eval_dataset.json",
-                        help="Path to evaluation dataset JSON.")
-    parser.add_argument("--live", action="store_true",
-                        help="Run live calls against the Gemini API instead of mock labels.")
-    parser.add_argument("--allowlist", type=str, default="disable_access_key,block_ip,isolate_pod,isolate_instance_sg",
-                        help="Comma-separated action classes to seed in the auto-execute allowlist.")
-    
-    args = parser.parse_args()
-    allowlist_classes = [c.strip() for c in args.allowlist.split(",") if c.strip()]
-    
-    try:
-        sys.exit(asyncio.run(evaluate_pipeline(args.dataset, args.live, allowlist_classes)))
-    except KeyboardInterrupt:
-        print("\nEvaluation interrupted by user.")
-        sys.exit(130)
+    # Delegates to cli() rather than repeating the parser. The two used to be
+    # separate copies with independently maintained defaults, so `python
+    # run_eval.py` and the `kronagent-eval` console script could silently
+    # evaluate against different allowlists.
+    sys.exit(cli())

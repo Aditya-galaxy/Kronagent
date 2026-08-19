@@ -31,12 +31,19 @@
             "CallerType": "Remote IP",
             "RemoteIpDetails": {
               "IpAddressV4": "185.220.101.7",
-              "Organization": { "Org": "Tor Exit Node" }
+              "Organization": {
+                "Org": "Tor Exit Node"
+              }
             }
           }
         }
       }
-    }
+    },
+    "expected_action_classes": [
+      "attach_deny_all_to_principal",
+      "block_ip",
+      "disable_access_key"
+    ]
   },
   {
     "finding_id": "eval-aws-attack-0002",
@@ -61,9 +68,15 @@
       "Service": {
         "ServiceName": "guardduty",
         "Count": 37,
-        "Action": { "ActionType": "DNS_REQUEST" }
+        "Action": {
+          "ActionType": "DNS_REQUEST"
+        }
       }
-    }
+    },
+    "expected_action_classes": [
+      "isolate_instance_sg",
+      "terminate_instance"
+    ]
   },
   {
     "finding_id": "eval-aws-benign-0003",
@@ -91,7 +104,9 @@
         "Action": {
           "ActionType": "NETWORK_CONNECTION",
           "AwsApiCallAction": {
-            "RemoteIpDetails": { "IpAddressV4": "45.155.205.99" }
+            "RemoteIpDetails": {
+              "IpAddressV4": "45.155.205.99"
+            }
           }
         }
       }
@@ -132,7 +147,12 @@
           }
         }
       }
-    }
+    },
+    "expected_action_classes": [
+      "attach_deny_all_to_principal",
+      "block_ip",
+      "disable_access_key"
+    ]
   },
   {
     "finding_id": "eval-aws-benign-0005",
@@ -160,7 +180,9 @@
         "Action": {
           "ActionType": "NETWORK_CONNECTION",
           "AwsApiCallAction": {
-            "RemoteIpDetails": { "IpAddressV4": "12.34.56.78" }
+            "RemoteIpDetails": {
+              "IpAddressV4": "12.34.56.78"
+            }
           }
         }
       }
@@ -197,7 +219,11 @@
           }
         }
       }
-    }
+    },
+    "expected_action_classes": [
+      "attach_deny_all_to_principal",
+      "disable_access_key"
+    ]
   },
   {
     "finding_id": "eval-aws-benign-0007",
@@ -279,11 +305,18 @@
         "Action": {
           "ActionType": "NETWORK_CONNECTION",
           "AwsApiCallAction": {
-            "RemoteIpDetails": { "IpAddressV4": "198.51.100.5" }
+            "RemoteIpDetails": {
+              "IpAddressV4": "198.51.100.5"
+            }
           }
         }
       }
-    }
+    },
+    "expected_action_classes": [
+      "block_ip",
+      "isolate_instance_sg",
+      "terminate_instance"
+    ]
   },
   {
     "finding_id": "eval-aws-benign-0010",
@@ -311,7 +344,9 @@
         "Action": {
           "ActionType": "NETWORK_CONNECTION",
           "AwsApiCallAction": {
-            "RemoteIpDetails": { "IpAddressV4": "203.0.113.50" }
+            "RemoteIpDetails": {
+              "IpAddressV4": "203.0.113.50"
+            }
           }
         }
       }
@@ -325,12 +360,29 @@
     "raw_event": {
       "auditID": "eval-k8s-attack-0011",
       "verb": "create",
-      "user": { "username": "system:serviceaccount:default:anonymous", "groups": ["system:unauthenticated"] },
-      "sourceIPs": ["10.0.9.14"],
-      "objectRef": { "resource": "pods", "namespace": "payments", "name": "payments-api-7f9c8d", "subresource": "exec" },
+      "user": {
+        "username": "system:serviceaccount:default:anonymous",
+        "groups": [
+          "system:unauthenticated"
+        ]
+      },
+      "sourceIPs": [
+        "10.0.9.14"
+      ],
+      "objectRef": {
+        "resource": "pods",
+        "namespace": "payments",
+        "name": "payments-api-7f9c8d",
+        "subresource": "exec"
+      },
       "detected_rule": "privilege_escalation_exec",
       "node_name": "ip-10-0-3-51.ec2.internal"
-    }
+    },
+    "expected_action_classes": [
+      "cordon_node",
+      "delete_pod",
+      "isolate_pod"
+    ]
   },
   {
     "finding_id": "eval-k8s-attack-0012",
@@ -340,11 +392,23 @@
     "raw_event": {
       "auditID": "eval-k8s-attack-0012",
       "verb": "get",
-      "user": { "username": "system:serviceaccount:ci:deleted-job-token", "groups": ["system:serviceaccounts"] },
-      "sourceIPs": ["10.0.4.201"],
-      "objectRef": { "resource": "secrets", "namespace": "kube-system", "name": "*" },
+      "user": {
+        "username": "system:serviceaccount:ci:deleted-job-token",
+        "groups": [
+          "system:serviceaccounts"
+        ]
+      },
+      "sourceIPs": [
+        "10.0.4.201"
+      ],
+      "objectRef": {
+        "resource": "secrets",
+        "namespace": "kube-system",
+        "name": "*"
+      },
       "detected_rule": "secret_enumeration"
-    }
+    },
+    "expected_action_classes": []
   },
   {
     "finding_id": "eval-k8s-attack-0013",
@@ -354,11 +418,25 @@
     "raw_event": {
       "auditID": "eval-k8s-attack-0013",
       "verb": "create",
-      "user": { "username": "system:serviceaccount:default:builder", "groups": ["system:serviceaccounts"] },
-      "sourceIPs": ["10.0.7.88"],
-      "objectRef": { "resource": "deployments", "namespace": "default", "name": "nginx-update-svc" },
+      "user": {
+        "username": "system:serviceaccount:default:builder",
+        "groups": [
+          "system:serviceaccounts"
+        ]
+      },
+      "sourceIPs": [
+        "10.0.7.88"
+      ],
+      "objectRef": {
+        "resource": "deployments",
+        "namespace": "default",
+        "name": "nginx-update-svc"
+      },
       "detected_rule": "crypto_mining_pod"
-    }
+    },
+    "expected_action_classes": [
+      "scale_deployment_zero"
+    ]
   },
   {
     "finding_id": "eval-k8s-benign-0014",
@@ -368,9 +446,20 @@
     "raw_event": {
       "auditID": "eval-k8s-benign-0014",
       "verb": "list",
-      "user": { "username": "system:serviceaccount:monitoring:prometheus", "groups": ["system:serviceaccounts"] },
-      "sourceIPs": ["10.0.2.10"],
-      "objectRef": { "resource": "pods", "namespace": "monitoring", "name": "node-exporter-abc12" },
+      "user": {
+        "username": "system:serviceaccount:monitoring:prometheus",
+        "groups": [
+          "system:serviceaccounts"
+        ]
+      },
+      "sourceIPs": [
+        "10.0.2.10"
+      ],
+      "objectRef": {
+        "resource": "pods",
+        "namespace": "monitoring",
+        "name": "node-exporter-abc12"
+      },
       "detected_rule": "benign_scan",
       "node_name": "ip-10-0-2-10.ec2.internal"
     }
@@ -383,9 +472,20 @@
     "raw_event": {
       "auditID": "eval-k8s-benign-0015",
       "verb": "get",
-      "user": { "username": "system:kube-controller-manager", "groups": ["system:authenticated"] },
-      "sourceIPs": ["127.0.0.1"],
-      "objectRef": { "resource": "pods", "namespace": "kube-system", "name": "kube-dns-xxxx" },
+      "user": {
+        "username": "system:kube-controller-manager",
+        "groups": [
+          "system:authenticated"
+        ]
+      },
+      "sourceIPs": [
+        "127.0.0.1"
+      ],
+      "objectRef": {
+        "resource": "pods",
+        "namespace": "kube-system",
+        "name": "kube-dns-xxxx"
+      },
       "detected_rule": "benign_scan"
     }
   },
@@ -397,9 +497,21 @@
     "raw_event": {
       "auditID": "eval-k8s-benign-0016",
       "verb": "create",
-      "user": { "username": "alice@company.com", "groups": ["system:authenticated"] },
-      "sourceIPs": ["192.168.1.100"],
-      "objectRef": { "resource": "pods", "namespace": "staging", "name": "frontend-dev-pod", "subresource": "exec" },
+      "user": {
+        "username": "alice@company.com",
+        "groups": [
+          "system:authenticated"
+        ]
+      },
+      "sourceIPs": [
+        "192.168.1.100"
+      ],
+      "objectRef": {
+        "resource": "pods",
+        "namespace": "staging",
+        "name": "frontend-dev-pod",
+        "subresource": "exec"
+      },
       "detected_rule": "benign_scan"
     }
   },
@@ -411,9 +523,20 @@
     "raw_event": {
       "auditID": "eval-k8s-benign-0017",
       "verb": "delete",
-      "user": { "username": "system:serviceaccount:default:job-manager", "groups": ["system:serviceaccounts"] },
-      "sourceIPs": ["10.0.4.15"],
-      "objectRef": { "resource": "pods", "namespace": "default", "name": "transcoder-job-77a" },
+      "user": {
+        "username": "system:serviceaccount:default:job-manager",
+        "groups": [
+          "system:serviceaccounts"
+        ]
+      },
+      "sourceIPs": [
+        "10.0.4.15"
+      ],
+      "objectRef": {
+        "resource": "pods",
+        "namespace": "default",
+        "name": "transcoder-job-77a"
+      },
       "detected_rule": "benign_scan"
     }
   },
@@ -425,9 +548,20 @@
     "raw_event": {
       "auditID": "eval-k8s-benign-0018",
       "verb": "update",
-      "user": { "username": "system:serviceaccount:default:ci-cd", "groups": ["system:serviceaccounts"] },
-      "sourceIPs": ["10.0.1.20"],
-      "objectRef": { "resource": "deployments", "namespace": "testing", "name": "integration-web" },
+      "user": {
+        "username": "system:serviceaccount:default:ci-cd",
+        "groups": [
+          "system:serviceaccounts"
+        ]
+      },
+      "sourceIPs": [
+        "10.0.1.20"
+      ],
+      "objectRef": {
+        "resource": "deployments",
+        "namespace": "testing",
+        "name": "integration-web"
+      },
       "detected_rule": "benign_scan"
     }
   },
@@ -439,11 +573,26 @@
     "raw_event": {
       "auditID": "eval-k8s-attack-0019",
       "verb": "create",
-      "user": { "username": "system:serviceaccount:default:anonymous", "groups": ["system:unauthenticated"] },
-      "sourceIPs": ["10.0.8.22"],
-      "objectRef": { "resource": "pods", "namespace": "default", "name": "attacker-escape-pod" },
+      "user": {
+        "username": "system:serviceaccount:default:anonymous",
+        "groups": [
+          "system:unauthenticated"
+        ]
+      },
+      "sourceIPs": [
+        "10.0.8.22"
+      ],
+      "objectRef": {
+        "resource": "pods",
+        "namespace": "default",
+        "name": "attacker-escape-pod"
+      },
       "detected_rule": "sensitive_mount"
-    }
+    },
+    "expected_action_classes": [
+      "delete_pod",
+      "isolate_pod"
+    ]
   },
   {
     "finding_id": "eval-k8s-attack-0020",
@@ -453,11 +602,204 @@
     "raw_event": {
       "auditID": "eval-k8s-attack-0020",
       "verb": "create",
-      "user": { "username": "untrusted-user", "groups": ["system:authenticated"] },
-      "sourceIPs": ["198.51.100.9"],
-      "objectRef": { "resource": "pods", "namespace": "kube-system", "name": "kube-apiserver-control-plane", "subresource": "exec" },
+      "user": {
+        "username": "untrusted-user",
+        "groups": [
+          "system:authenticated"
+        ]
+      },
+      "sourceIPs": [
+        "198.51.100.9"
+      ],
+      "objectRef": {
+        "resource": "pods",
+        "namespace": "kube-system",
+        "name": "kube-apiserver-control-plane",
+        "subresource": "exec"
+      },
       "detected_rule": "privilege_escalation_exec",
       "node_name": "control-plane-node"
+    },
+    "expected_action_classes": [
+      "cordon_node",
+      "delete_pod",
+      "isolate_pod"
+    ]
+  },
+  {
+    "finding_id": "eval-azure-attack-0021",
+    "provider": "azure",
+    "expected_actionable": true,
+    "description": "Entra ID service principal signed in from a Tor exit node and enumerated Key Vault secrets from a payments VM. Should plan NSG isolation, principal disable, session revocation and an IP block.",
+    "raw_event": {
+      "id": "/subscriptions/8f1e2c4a-5b6d-4e7f-9a0b-1c2d3e4f5a6b/resourceGroups/rg-payments/providers/Microsoft.Security/locations/westeurope/alerts/eval-azure-attack-0021",
+      "name": "eval-azure-attack-0021",
+      "type": "Microsoft.Security/Locations/alerts",
+      "properties": {
+        "alertType": "VM_SuspiciousCredentialAccess",
+        "alertDisplayName": "Suspicious credential access from a Tor exit node",
+        "description": "Sign-in for service principal svc-deploy originated from a known Tor exit node, followed by enumeration of Key Vault secrets from vm-payments-01.",
+        "severity": "High",
+        "timeGenerated": "2026-07-29T02:14:03.482Z",
+        "compromisedEntity": "vm-payments-01",
+        "resourceIdentifiers": [
+          {
+            "type": "AzureResource",
+            "azureResourceId": "/subscriptions/8f1e2c4a-5b6d-4e7f-9a0b-1c2d3e4f5a6b/resourceGroups/rg-payments/providers/Microsoft.Compute/virtualMachines/vm-payments-01"
+          }
+        ],
+        "entities": [
+          {
+            "type": "host",
+            "hostName": "vm-payments-01"
+          },
+          {
+            "type": "ip",
+            "address": "185.220.101.7"
+          },
+          {
+            "type": "account",
+            "name": "svc-deploy",
+            "aadUserId": "3f9a1b2c-7d8e-4f0a-b1c2-d3e4f5a6b7c8",
+            "upnSuffix": "contoso.onmicrosoft.com"
+          }
+        ]
+      }
+    },
+    "expected_action_classes": [
+      "block_ip",
+      "deallocate_vm",
+      "disable_entra_principal",
+      "isolate_vm_nsg",
+      "revoke_entra_sessions"
+    ]
+  },
+  {
+    "finding_id": "eval-azure-benign-0022",
+    "provider": "azure",
+    "expected_actionable": false,
+    "description": "Routine Azure Policy compliance scan enumerating VM configurations from the corporate management subnet. Expected, low severity, no containment.",
+    "raw_event": {
+      "id": "/subscriptions/8f1e2c4a-5b6d-4e7f-9a0b-1c2d3e4f5a6b/resourceGroups/rg-corp/providers/Microsoft.Security/locations/westeurope/alerts/eval-azure-benign-0022",
+      "name": "eval-azure-benign-0022",
+      "type": "Microsoft.Security/Locations/alerts",
+      "properties": {
+        "alertType": "ARM_ResourceEnumeration",
+        "alertDisplayName": "Azure resource enumeration detected",
+        "description": "Read-only enumeration of subscription resources by the scheduled Azure Policy compliance scanner, from the corporate management subnet 10.40.0.0/16.",
+        "severity": "Low",
+        "timeGenerated": "2026-07-29T03:02:11.004Z",
+        "entities": [
+          {
+            "type": "ip",
+            "address": "10.40.2.15"
+          },
+          {
+            "type": "account",
+            "name": "svc-policy-scanner",
+            "aadUserId": "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "finding_id": "eval-gcp-attack-0023",
+    "provider": "gcp",
+    "expected_actionable": true,
+    "description": "A user-managed service account key was created and immediately used from an unrecognised network to read Cloud Storage. Should plan key disable, service account disable and an IP block.",
+    "raw_event": {
+      "finding": {
+        "name": "organizations/482910371625/sources/1902847361029384756/findings/eval-gcp-attack-0023",
+        "resourceName": "//iam.googleapis.com/projects/kronagent-demo/serviceAccounts/exfil-sa@kronagent-demo.iam.gserviceaccount.com/keys/a91f3c7d2e8b4056",
+        "category": "Exfiltration: Service Account Key Created",
+        "severity": "CRITICAL",
+        "eventTime": "2026-07-29T02:18:41.203Z",
+        "description": "A new user-managed service account key was created for exfil-sa and used within seconds from an unrecognised ASN to list and read Cloud Storage objects.",
+        "sourceProperties": {
+          "callerIp": "185.220.101.7",
+          "serviceAccountEmail": "exfil-sa@kronagent-demo.iam.gserviceaccount.com"
+        }
+      }
+    },
+    "expected_action_classes": [
+      "block_ip",
+      "disable_service_account",
+      "disable_service_account_key"
+    ]
+  },
+  {
+    "finding_id": "eval-gcp-benign-0024",
+    "provider": "gcp",
+    "expected_actionable": false,
+    "description": "Scheduled Cloud Build service account performing its normal nightly artifact push. Recognised pipeline identity and source range; no containment.",
+    "raw_event": {
+      "finding": {
+        "name": "organizations/482910371625/sources/1902847361029384756/findings/eval-gcp-benign-0024",
+        "resourceName": "//iam.googleapis.com/projects/kronagent-demo/serviceAccounts/build-runner@kronagent-demo.iam.gserviceaccount.com",
+        "category": "Discovery: Service Account Activity",
+        "severity": "LOW",
+        "eventTime": "2026-07-29T03:11:52.660Z",
+        "description": "The build-runner service account listed Artifact Registry repositories during its scheduled nightly build window, from the CI egress range.",
+        "sourceProperties": {
+          "callerIp": "10.128.0.44"
+        }
+      }
+    }
+  },
+  {
+    "finding_id": "eval-onprem-attack-0025",
+    "provider": "onprem",
+    "expected_actionable": true,
+    "description": "SSH brute force succeeded on a production database host, followed by credential access. Should plan host network isolation, account disable and an IP block.",
+    "raw_event": {
+      "detector": "wazuh",
+      "alert_id": "eval-onprem-attack-0025",
+      "rule": {
+        "id": "5710",
+        "name": "ssh_bruteforce_success",
+        "severity": "high"
+      },
+      "timestamp": "2026-07-29T02:12:44Z",
+      "description": "342 failed SSH authentications from a single external source were followed by a successful login as svc-backup and immediate reads of /etc/shadow.",
+      "host": {
+        "hostname": "db-prod-01.corp.internal",
+        "ip": "10.20.30.41",
+        "site": "dc-east"
+      },
+      "account": {
+        "username": "svc-backup",
+        "domain": "CORP"
+      },
+      "source_ip": "185.220.101.7"
+    },
+    "expected_action_classes": [
+      "block_ip",
+      "disable_local_account",
+      "isolate_host_network"
+    ]
+  },
+  {
+    "finding_id": "eval-onprem-benign-0026",
+    "provider": "onprem",
+    "expected_actionable": false,
+    "description": "Authorised vulnerability scanner performing its scheduled weekly sweep from the security VLAN. Known scanner host, expected window; no containment.",
+    "raw_event": {
+      "detector": "suricata",
+      "alert_id": "eval-onprem-benign-0026",
+      "rule": {
+        "id": "2010935",
+        "name": "port_scan",
+        "severity": "low"
+      },
+      "timestamp": "2026-07-29T03:30:02Z",
+      "description": "Sequential TCP SYN probes from the authorised Nessus scanner during the approved Sunday 03:00 maintenance window.",
+      "host": {
+        "hostname": "scanner-01.corp.internal",
+        "ip": "10.20.9.5",
+        "site": "dc-east"
+      },
+      "source_ip": "10.20.9.5"
     }
   }
 ]
