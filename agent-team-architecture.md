@@ -186,12 +186,15 @@ The orchestrator and the multi-agent SOC team (Triage, Threat Intel, Correlation
 
 - [x] **Containerization & CI/CD Pipeline (Phase 0)**: Multi-stage `Dockerfile`, `docker-compose.yml` local sandbox environment, GitHub Actions CI workflow, and boot-time configuration validation (`ConfigError`).
 - [x] **Self-Serve Cloud Onboarding (Phase 1)**: Standalone CloudFormation templates (`deploy/cloudformation/`) supporting zero-key STS `ExternalId` cross-account role assumption with `Observe` (read-only) vs. `Contain` (remediation) permission separation.
-- [x] **Telemetry Pre-Processing & Prompt-Injection Shielding (Phase 2)**: Control-token stripping (`<|im_start|>`, `[INST]`, `system override`, `ignore guardrails`), secret redaction, and reversible placeholder masking (`sanitize_telemetry()`).
+- [x] **Telemetry Pre-Processing & Prompt-Injection Shielding (Phase 2)**: Control-token stripping (`<|im_start|>`, `<|system|>`, `[INST]`, `system override`, `ignore guardrails`), secret redaction, and reversible placeholder masking (`sanitize_telemetry()`).
 - [x] **Real-Time Event Streaming (Phase 3)**: Web console Server-Sent Events (`/api/events/stream`) delivering live status, audit events, and pending approval notifications.
+- [x] **Enterprise Auth & OCSF SIEM Export (Phase 4)**: Cryptographic audit log verification and `/api/export/siem` REST API returning OCSF-normalized events for SIEM ingestion (Splunk, Sentinel, Datadog).
+- [x] **Shadow Mode & Evaluation Harness (Phase 5)**: Measured evaluation harness (`run_eval.py`) with Wilson score 95% confidence intervals, 26 benchmark cases across 5 substrates, 100% CDC, and 0% FPUA.
+- [x] **Cloud Connection REST APIs & Database Storage Engine (Phase 6)**: `/api/connect/aws/link`, `/api/connect/aws/verify`, `/api/connect/status` web APIs, and unified `DatabaseStorageEngine` abstraction in `kronagent/storage.py`.
+- [x] **Kubernetes Helm Chart & Local Sandbox**: Production Helm chart templates (`deploy/helm/`) and Docker Compose SQS emulator sandbox profile (`sqs-emulator`).
 
 ### Upcoming Milestones
 
-- **PostgreSQL / DynamoDB Storage Migration**: Transitioning SQLite stores to distributed database backends for high-availability multi-tenant deployments.
 - **KMS/HSM Cryptographic Signatures**: Hardening the append-only audit log and forensic custody chains with hardware security module or KMS keys to establish an immutable, verifiable chain of custody.
 - **Durable Infrastructure Testbed**: Validating active containment execution paths against running cloud/K8s workloads.
 

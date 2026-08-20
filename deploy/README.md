@@ -124,3 +124,21 @@ and approval-gated.
 - **Rotate to STS/short-lived credentials for production.** A static access key
   with this policy is still a high-value target; scope it with an SCP and a
   permissions boundary, and prefer role assumption.
+
+## 7. Kubernetes Deployment with Helm
+
+Production Kubernetes Helm chart templates are available in [`deploy/helm/kronagent/`](helm/kronagent/):
+
+```bash
+# Lint the chart
+helm lint deploy/helm/kronagent
+
+# Dry-run template rendering
+helm template kronagent deploy/helm/kronagent --values deploy/helm/kronagent/values.yaml
+
+# Install/upgrade in cluster
+helm upgrade --install kronagent deploy/helm/kronagent \
+  --namespace kronagent --create-namespace \
+  --set config.dryRun=true
+```
+

@@ -7,6 +7,7 @@
 kronagent_audit.jsonl
 kronagent_approvals.json
 kronagent_allowlist.json
+kronagent_connections.json
 kronagent_trajectory_halt.json
 *.jsonl
 # Demo scratch state (demo_trajectory.py writes these; never real runtime data)
