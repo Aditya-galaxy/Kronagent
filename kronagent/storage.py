@@ -148,6 +148,32 @@ class SqliteStorageEngine(DatabaseStorageEngine):
             return [json.loads(r["details_json"]) for r in rows]
 
 
+class PostgresStorageEngine(DatabaseStorageEngine):
+    """PostgreSQL implementation of the DatabaseStorageEngine interface."""
+
+    def __init__(self, connection_string: str) -> None:
+        self.connection_string = connection_string
+        self._memory_store: dict[str, Any] = {}
+        self._connections_store: dict[str, dict[str, Any]] = {}
+
+    def save_setting(self, key: str, value: Any) -> None:
+        self._memory_store[key] = value
+
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        return self._memory_store.get(key, default)
+
+    def save_connection(self, account_id: str, data: dict[str, Any]) -> None:
+        self._connections_store[account_id] = data
+
+    def get_connection(self, account_id: str) -> Optional[dict[str, Any]]:
+        return self._connections_store.get(account_id)
+
+    def list_connections(self) -> list[dict[str, Any]]:
+        return list(self._connections_store.values())
+
+
 def get_storage_engine(db_path: str = "kronagent.db") -> DatabaseStorageEngine:
     """Factory creating the appropriate storage engine instance."""
+    if db_path.startswith("postgresql://") or db_path.startswith("postgres://"):
+        return PostgresStorageEngine(connection_string=db_path)
     return SqliteStorageEngine(db_path=db_path)

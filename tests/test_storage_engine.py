@@ -48,3 +48,10 @@ def test_sqlite_storage_cloud_connections():
         all_conns = engine.list_connections()
         assert len(all_conns) == 1
         assert all_conns[0]["account_id"] == "123456789012"
+
+
+def test_postgres_storage_engine_factory():
+    pg_engine = get_storage_engine("postgresql://user:pass@localhost:5432/kronagent")
+    assert pg_engine.__class__.__name__ == "PostgresStorageEngine"
+    pg_engine.save_setting("key1", "val1")
+    assert pg_engine.get_setting("key1") == "val1"

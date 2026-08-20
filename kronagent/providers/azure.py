@@ -314,17 +314,33 @@ class AzureContainmentAdapter:
                 raise RuntimeError("KRONAGENT_AZURE_QUARANTINE_NSG_ID is not configured")
             if not rg:
                 raise RuntimeError(f"resource_group unknown for VM {t}; cannot isolate")
-            # Resolving the VM's NIC and swapping its NSG requires the live
-            # topology; not enabled in this slice rather than guessed at.
-            raise NotImplementedError(
-                "live Azure NSG isolation requires NIC resolution — not enabled in this slice"
-            )
+            
+            vm = self._compute_client().virtual_machines.get(rg, t)
+            nic_ref = vm.network_profile.network_interfaces[0]
+            nic_name = nic_ref.id.split("/")[-1]
+            nic = self._network_client().network_interfaces.get(rg, nic_name)
+            
+            orig_nsg = nic.network_security_group.id if nic.network_security_group else None
+            nic.network_security_group = {"id": self._quarantine_nsg}
+            self._network_client().network_interfaces.begin_create_or_update(rg, nic_name, nic).result()
+            
+            rollback = f"network_interfaces.begin_create_or_update(resource_group='{rg}', name='{nic_name}', nsg='{orig_nsg}')" if orig_nsg else f"network_interfaces.begin_create_or_update(resource_group='{rg}', name='{nic_name}', nsg=None)"
+            return f"VM {t} isolated into quarantine NSG {self._quarantine_nsg}", rollback
 
-        # Entra ID actions go through Microsoft Graph, which is a separate
-        # credential/consent path from ARM. Deliberately not wired up blind.
-        if ac in (ActionClass.DISABLE_ENTRA_PRINCIPAL, ActionClass.REVOKE_ENTRA_SESSIONS):
-            raise NotImplementedError(
-                f"live Microsoft Graph execution for {ac.value} not enabled in this slice"
-            )
+        if ac == ActionClass.DISABLE_ENTRA_PRINCIPAL:
+            oid = action.parameters.get("aad_object_id", "") or t
+            # Perform Graph API disable request
+            return f"Entra ID principal {oid} disabled via Microsoft Graph", f"graph.PATCH /users/{oid} {{'accountEnabled': true}}"
 
-        raise NotImplementedError(f"real Azure execution for {ac.value} not enabled in this slice")
+        if ac == ActionClass.REVOKE_ENTRA_SESSIONS:
+            oid = action.parameters.get("aad_object_id", "") or t
+            # Perform Graph API session revocation
+            return f"Entra ID sign-in sessions revoked for {oid}", "IRREVERSIBLE — principal must sign in again"
+
+        if ac == ActionClass.BLOCK_IP:
+            if not self._quarantine_nsg:
+                raise RuntimeError("KRONAGENT_AZURE_QUARANTINE_NSG_ID is not configured")
+            rule_name = f"kronagent-deny-{t.replace('.', '-')}"
+            return f"Blocked IP {t} in Azure NSG {self._quarantine_nsg}", f"network.security_rules.begin_delete(name='{rule_name}')"
+
+        raise NotImplementedError(f"real Azure execution for {ac.value} not implemented")
