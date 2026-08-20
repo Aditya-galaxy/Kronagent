@@ -23,12 +23,13 @@ from typing import Callable, Optional
 from ..config import Settings
 from ..model import Finding
 from ..schemas import ProposedAction
-from . import aws, azure, gcp, k8s, onprem
+from . import aws, azure, cloudflare, gcp, k8s, onprem
 
 # native payload dict -> Finding
 NORMALIZERS: dict[str, Callable[[dict], Finding]] = {
     aws.PROVIDER: aws.normalize_guardduty,
     azure.PROVIDER: azure.normalize_defender,
+    cloudflare.PROVIDER: cloudflare.normalize_cloudflare,
     gcp.PROVIDER: gcp.normalize_gcp_scc,
     k8s.PROVIDER: k8s.normalize_k8s,
     onprem.PROVIDER: onprem.normalize_onprem,
@@ -38,6 +39,7 @@ NORMALIZERS: dict[str, Callable[[dict], Finding]] = {
 PLANNERS: dict[str, Callable[[Finding], list[ProposedAction]]] = {
     aws.PROVIDER: aws.plan_aws_actions,
     azure.PROVIDER: azure.plan_azure_actions,
+    cloudflare.PROVIDER: cloudflare.plan_cloudflare_actions,
     gcp.PROVIDER: gcp.plan_gcp_actions,
     k8s.PROVIDER: k8s.plan_k8s_actions,
     onprem.PROVIDER: onprem.plan_onprem_actions,
@@ -69,6 +71,7 @@ def build_containment_adapters(
             subscription_id=settings.azure_subscription_id,
             quarantine_nsg_id=settings.azure_quarantine_nsg_id,
         ),
+        cloudflare.PROVIDER: cloudflare.CloudflareContainmentAdapter(),
         gcp.PROVIDER: gcp.GcpContainmentAdapter(),
         k8s.PROVIDER: k8s.K8sContainmentAdapter(
             kubeconfig=settings.kubeconfig_path,

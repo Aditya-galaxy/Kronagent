@@ -302,8 +302,8 @@ def test_new_actions_need_the_allowlist_before_auto_executing(settings, allowlis
 # --------------------------------------------------------------------------- #
 
 def test_registry_includes_the_new_providers() -> None:
-    assert set(NORMALIZERS) == {"aws", "azure", "gcp", "kubernetes", "onprem"}
-    assert set(PLANNERS) == {"aws", "azure", "gcp", "kubernetes", "onprem"}
+    assert set(NORMALIZERS) == {"aws", "azure", "cloudflare", "gcp", "kubernetes", "onprem"}
+    assert set(PLANNERS) == {"aws", "azure", "cloudflare", "gcp", "kubernetes", "onprem"}
 
 
 def test_build_containment_adapters_registers_the_new_providers() -> None:

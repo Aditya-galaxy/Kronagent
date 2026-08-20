@@ -801,5 +801,36 @@
       },
       "source_ip": "10.20.9.5"
     }
+  },
+  {
+    "finding_id": "eval-cloudflare-attack-0027",
+    "provider": "cloudflare",
+    "expected_actionable": true,
+    "description": "SQL injection payload detected on production edge WAF. Should plan blocking client IP.",
+    "raw_event": {
+      "event_id": "eval-cloudflare-attack-0027",
+      "zone_name": "example.com",
+      "action": "block",
+      "client_ip": "198.51.100.42",
+      "description": "SQL injection payload detected in URI parameter",
+      "tenant_id": "default"
+    },
+    "expected_action_classes": [
+      "block_ip"
+    ]
+  },
+  {
+    "finding_id": "eval-cloudflare-benign-0028",
+    "provider": "cloudflare",
+    "expected_actionable": false,
+    "description": "Low severity WAF log observation for standard search query traffic.",
+    "raw_event": {
+      "event_id": "eval-cloudflare-benign-0028",
+      "zone_name": "example.com",
+      "action": "log",
+      "client_ip": "198.51.100.99",
+      "description": "Search query parameter logged for analytics",
+      "tenant_id": "default"
+    }
   }
 ]

@@ -158,7 +158,7 @@ def test_plan_k8s_actions_secret_enumeration_has_no_planner_for_secrets(k8s_audi
 # Registry dispatch
 # --------------------------------------------------------------------------- #
 
-_ALL_PROVIDERS = {"aws", "azure", "gcp", "kubernetes", "onprem"}
+_ALL_PROVIDERS = {"aws", "azure", "cloudflare", "gcp", "kubernetes", "onprem"}
 
 
 def test_registry_has_all_providers() -> None:

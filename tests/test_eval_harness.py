@@ -226,6 +226,7 @@ def test_default_allowlist_exercises_every_provider() -> None:
         "gcp": {"disable_service_account", "disable_service_account_key"},
         "kubernetes": {"isolate_pod", "cordon_node"},
         "onprem": {"isolate_host_network", "disable_local_account"},
+        "cloudflare": {"block_ip"},
     }
     assert set(per_provider) == set(PLANNERS)
     for provider, classes in per_provider.items():

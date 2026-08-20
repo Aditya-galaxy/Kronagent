@@ -137,6 +137,7 @@ def test_every_provider_has_at_least_one_auto_eligible_action() -> None:
         "kubernetes": {ActionClass.ISOLATE_POD, ActionClass.CORDON_NODE},
         "onprem": {ActionClass.ISOLATE_HOST_NETWORK, ActionClass.DISABLE_LOCAL_ACCOUNT,
                    ActionClass.BLOCK_IP},
+        "cloudflare": {ActionClass.BLOCK_IP},
     }
     assert set(provider_actions) == set(PLANNERS), "provider list drifted from the registry"
 

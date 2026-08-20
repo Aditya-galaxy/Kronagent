@@ -243,6 +243,7 @@ kronagent/
     __init__.py         registry: normalizers, planners, containment adapters
     aws.py              GuardDuty normalization + IAM/EC2 containment
     azure.py            Defender for Cloud normalization + VM/Entra containment
+    cloudflare.py       WAF/Firewall normalization + edge network block containment
     gcp.py              SCC normalization + service-account/Compute containment
     k8s.py               Kubernetes audit normalization + pod/node containment
     onprem.py           in-house detector contract + host/account/process containment
@@ -285,8 +286,8 @@ demo_trajectory.py     adversarial trajectory-guard walkthrough
 
 testbed/               local SQS emulator (no AWS account, no Docker)
 deploy/                IAM policies, CloudFormation launch templates, Kubernetes Helm chart
-samples/                real-schema sample findings (AWS, Azure, GCP, K8s, on-prem)
-tests/                 605 tests, offline, ~23s
+samples/                real-schema sample findings (AWS, Azure, Cloudflare, GCP, K8s, on-prem)
+tests/                 608 tests, offline, ~23s
 ```
 
 ---
@@ -298,7 +299,7 @@ python3 -m pip install -r requirements-dev.txt
 python3 -m pytest -q
 ```
 
-605 fully offline, deterministic unit and integration tests passing cleanly. Coverage highlights: the policy engine's safety ceiling (destructive actions proven to never auto-execute, even if allowlisted), the audit log's tamper-evidence (mutation-tested, not just asserted), the behavioral-trajectory guard (scope integrity, runaway rate, and latching — all with injected clocks rather than sleeps), a **cross-provider scope invariant** asserting that every planned action, for every provider, targets a resource its finding actually implicates (mutation-tested against a real defect this caught in the GCP planner), the approval-provider round-trip, forensics-before-containment ordering (mutation-tested), live ingestion against a real SQS server, SQLite/PostgreSQL-backed storage engine persistence, self-serve cloud connection web APIs (`/api/connect/...`), real-time SSE event stream (`/api/events/stream`), OCSF SIEM export (`/api/export/siem`), and EU AI Act compliance report generation.
+608 fully offline, deterministic unit and integration tests passing cleanly. Coverage highlights: the policy engine's safety ceiling (destructive actions proven to never auto-execute, even if allowlisted), the audit log's tamper-evidence (mutation-tested, not just asserted), the behavioral-trajectory guard (scope integrity, runaway rate, and latching — all with injected clocks rather than sleeps), a **cross-provider scope invariant** asserting that every planned action, for every provider, targets a resource its finding actually implicates (mutation-tested against a real defect this caught in the GCP planner), the approval-provider round-trip, forensics-before-containment ordering (mutation-tested), live ingestion against a real SQS server, SQLite/PostgreSQL-backed storage engine persistence, self-serve cloud connection web APIs (`/api/connect/...`), real-time SSE event stream (`/api/events/stream`), OCSF SIEM export (`/api/export/siem`), and EU AI Act compliance report generation.
 
 ---
 
