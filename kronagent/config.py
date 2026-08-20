@@ -259,6 +259,8 @@ class Settings:
             errors.append(f"KRONAGENT_TRAJECTORY_WINDOW_SECONDS ({self.trajectory_window_seconds}) must be positive.")
         if self.trajectory_max_auto_executions < 1:
             errors.append(f"KRONAGENT_TRAJECTORY_MAX_AUTO ({self.trajectory_max_auto_executions}) must be at least 1.")
+        if self.trajectory_max_scope_violations < 1:
+            errors.append(f"KRONAGENT_TRAJECTORY_MAX_SCOPE_VIOLATIONS ({self.trajectory_max_scope_violations}) must be at least 1.")
         return errors
 
     def validate_or_raise(self) -> None:

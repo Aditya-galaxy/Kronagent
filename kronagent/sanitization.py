@@ -62,6 +62,10 @@ _INJECTION_KEYWORDS = [
     r"(?i)set\s+severity\s+to\s+0",
     r"<\|im_start\|>",
     r"<\|im_end\|>",
+    r"<\|system\|>",
+    r"<\|user\|>",
+    r"<\|assistant\|>",
+    r"<\|endoftext\|>",
     r"\[INST\]",
     r"\[/INST\]",
 ]

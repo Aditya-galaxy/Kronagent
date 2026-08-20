@@ -15,14 +15,16 @@ def test_settings_validation_invalid_values():
         max_workers=0,
         trajectory_window_seconds=-5.0,
         trajectory_max_auto_executions=0,
+        trajectory_max_scope_violations=0,
     )
     errors = s.validate()
-    assert len(errors) == 5
+    assert len(errors) == 6
     assert "KRONAGENT_SQS_WAIT_SECONDS" in errors[0]
     assert "KRONAGENT_MIN_SEVERITY" in errors[1]
     assert "KRONAGENT_MAX_WORKERS" in errors[2]
     assert "KRONAGENT_TRAJECTORY_WINDOW_SECONDS" in errors[3]
     assert "KRONAGENT_TRAJECTORY_MAX_AUTO" in errors[4]
+    assert "KRONAGENT_TRAJECTORY_MAX_SCOPE_VIOLATIONS" in errors[5]
 
     with pytest.raises(ConfigError) as exc_info:
         s.validate_or_raise()
