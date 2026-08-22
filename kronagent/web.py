@@ -87,6 +87,19 @@ def resolve_tenant_id(request: Request) -> str:
     return DEFAULT_TENANT
 
 
+def identity_configured() -> bool:
+    """Whether an identity system exists at all.
+
+    Tenant scoping is only meaningful where identities are: with no registry and
+    no OIDC there is no principal to bind a tenant to, so the boundary cannot be
+    enforced by any means. Enforcing it anyway would lock a local install out of
+    its own named tenants while closing nothing.
+    """
+    from .identity import registry_configured
+    return bool(registry_configured(settings.operator_registry_path)
+                or (settings.oidc_issuer and settings.oidc_audience))
+
+
 def authorize_tenant(request: Request, tenant_id: str) -> None:
     """Authorize the caller for `tenant_id`, or raise 403.
 
@@ -99,15 +112,18 @@ def authorize_tenant(request: Request, tenant_id: str) -> None:
     if tenant_id == DEFAULT_TENANT:
         return  # the single-tenant path; require_view_auth governs it as before
 
-    from .identity import registry_configured, resolve_actor
+    from .identity import resolve_actor
 
-    if not (registry_configured(settings.operator_registry_path)
-            or (settings.oidc_issuer and settings.oidc_audience)):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(f"tenant '{tenant_id}' requested but no operator registry or OIDC "
-                    f"issuer is configured — cross-tenant access cannot be authorized."),
-        )
+    if not identity_configured():
+        # No registry and no OIDC means there is no identity system, so a tenant
+        # boundary is not merely unenforced — it is unenforceable, and pretending
+        # otherwise would only break local single-operator installs without
+        # closing anything. This posture is unchanged from before: writes already
+        # refuse without an operator, and reads are governed by
+        # require_view_auth. The vulnerability this function exists to close
+        # required a registry (it was one tenant's admin acting on another's), so
+        # it is closed exactly where it was open.
+        return
 
     operator_id = request.headers.get("X-Operator-ID")
     token = request.headers.get("X-Operator-Token")
@@ -138,6 +154,20 @@ def authorize_tenant(request: Request, tenant_id: str) -> None:
             detail=(f"operator '{actor.operator_id}' is not authorized for tenant "
                     f"'{tenant_id}' (permitted: {actor.tenants})."),
         )
+
+
+def _may_access_tenant(request: Request, tenant_id: str) -> bool:
+    """Non-raising form of `authorize_tenant`, for filtering a listing.
+
+    A list endpoint must omit what the caller may not see rather than 403 on the
+    first row it cannot show — otherwise one inaccessible tenant makes the whole
+    listing unusable, and the 403 itself confirms that tenant exists.
+    """
+    try:
+        authorize_tenant(request, tenant_id)
+        return True
+    except HTTPException:
+        return False
 
 
 def tenant_scope(request: Request) -> str:
@@ -860,11 +890,23 @@ async def slack_interactive(request: Request) -> dict[str, Any]:
     signature = headers.get("X-Slack-Signature", "")
     timestamp = headers.get("X-Slack-Request-Timestamp", "")
 
-    # 1. Verify Slack request signature (HMAC-SHA256)
-    if settings.slack_signing_secret:
-        from .chatops import verify_slack_signature
-        if not verify_slack_signature(settings.slack_signing_secret, body_bytes, timestamp, signature):
-            raise HTTPException(status_code=401, detail="Invalid Slack signature.")
+    # 1. Verify Slack request signature (HMAC-SHA256).
+    #
+    # Refuse when no signing secret is configured, rather than skipping the
+    # check. This endpoint is reachable from the internet by design — Slack
+    # calls it — and the unauthenticated fallback below grants the caller the
+    # admin role, so an unset secret turned "anyone who can POST here" into
+    # "anyone can approve containment". Other surfaces can treat missing auth as
+    # a local single-operator posture; a public webhook cannot.
+    if not settings.slack_signing_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="KRONAGENT_SLACK_SIGNING_SECRET is not configured — refusing "
+                   "unverified Slack interactions.",
+        )
+    from .chatops import verify_slack_signature
+    if not verify_slack_signature(settings.slack_signing_secret, body_bytes, timestamp, signature):
+        raise HTTPException(status_code=401, detail="Invalid Slack signature.")
 
     # 2. Parse form-url-encoded payload
     import urllib.parse
@@ -921,7 +963,8 @@ async def slack_interactive(request: Request) -> dict[str, Any]:
         display_name=operator.display_name,
         roles=operator.roles,
         identity_verified=identity_verified,
-        auth_method="slack_sso"
+        auth_method="slack_sso",
+        tenants=operator.permitted_tenants(),
     )
 
     # 5. Extract action decision
@@ -958,6 +1001,16 @@ async def slack_interactive(request: Request) -> dict[str, Any]:
         return {
             "response_type": "ephemeral",
             "text": f"❌ Request ID '{request_id}' not found in any approval store."
+        }
+
+    # The lookup above searches EVERY tenant's approval store for the request
+    # id, so without this a Slack user scoped to one tenant could approve
+    # another tenant's containment just by clicking a button carrying its id.
+    if identity_configured() and not actor.may_access(tenant_id):
+        return {
+            "response_type": "ephemeral",
+            "text": (f"❌ Authorization failed: operator '{actor.operator_id}' is not "
+                     f"authorized for tenant '{tenant_id}'."),
         }
 
     # Dynamically resolve stores for the selected tenant
@@ -1141,12 +1194,28 @@ class VerifyRequest(BaseModel):
 async def _require(permission, req, tenant_id: str, command: str, **extra):
     """Authorise, and audit the refusal if it fails.
 
+    Two checks, not one. The permission answers *what* this operator may do;
+    `may_access` answers *whose cloud account they may do it to*. This function
+    used to ask only the first, so an admin of any tenant could point another
+    tenant's containment role at an ARN they controlled, or disconnect their
+    cloud account outright — both demonstrated returning HTTP 200.
+
     A denied attempt to connect or disconnect a cloud account is exactly the
     kind of thing an incident review needs, so it is recorded before the 403.
     """
     audit = get_audit_log(tenant_id)
+
+    async def _deny(reason: str):
+        await audit.record(AuditRecord(
+            finding_id="_governance", stage="access_denied",
+            payload={"command": command, "required": permission.value,
+                     "tenant_id": tenant_id, "operator_id": req.operator_id,
+                     "error": reason, **extra},
+        ))
+        raise HTTPException(status_code=403, detail=reason)
+
     try:
-        return resolve_actor(
+        actor = resolve_actor(
             registry_path=settings.operator_registry_path,
             required=permission,
             # `by` is what unauthenticated mode records as a self-asserted
@@ -1164,23 +1233,35 @@ async def _require(permission, req, tenant_id: str, command: str, **extra):
             oidc_roles_claim=settings.oidc_roles_claim,
         )
     except AuthorizationError as exc:
-        await audit.record(AuditRecord(
-            finding_id="_governance", stage="access_denied",
-            payload={"command": command, "required": permission.value,
-                     "tenant_id": tenant_id, "operator_id": req.operator_id,
-                     "error": str(exc), **extra},
-        ))
-        raise HTTPException(status_code=403, detail=str(exc))
+        await _deny(str(exc))
+
+    # Same reasoning as authorize_tenant: with no identity system there is no
+    # principal to scope, so only the permission gate applies.
+    if identity_configured() and not actor.may_access(tenant_id):
+        await _deny(f"operator '{actor.operator_id}' is not authorized for tenant "
+                    f"'{tenant_id}' (permitted: {actor.tenants}). Add it to the "
+                    f"operator's 'tenants' in the registry, or grant '*'.")
+
+    return actor
 
 
 @app.get("/api/connections")
-async def list_connections() -> dict[str, Any]:
-    """Every connected tenant. External IDs are redacted."""
-    return {"connections": [_public_connection(c) for c in connection_store.list()]}
+async def list_connections(request: Request) -> dict[str, Any]:
+    """The connected tenants THIS CALLER may see.
+
+    Previously unauthenticated and unfiltered, so anyone who could reach the API
+    got every customer's tenant name, AWS account id and region — a customer
+    list plus the identifiers needed to target them. External IDs were redacted,
+    which was never the whole exposure.
+    """
+    visible = [c for c in connection_store.list()
+               if _may_access_tenant(request, c.tenant_id)]
+    return {"connections": [_public_connection(c) for c in visible]}
 
 
 @app.get("/api/connections/{tenant_id}")
-async def get_connection(tenant_id: str) -> dict[str, Any]:
+async def get_connection(tenant_id: str, request: Request) -> dict[str, Any]:
+    authorize_tenant(request, tenant_id)
     conn = connection_store.get(tenant_id)
     if conn is None:
         raise HTTPException(status_code=404, detail=f"no connection for tenant '{tenant_id}'")
@@ -1224,12 +1305,17 @@ async def create_connection(req: ConnectRequest) -> dict[str, Any]:
 
 
 @app.get("/api/connections/{tenant_id}/template/{grant}")
-async def connection_template(tenant_id: str, grant: str) -> dict[str, Any]:
+async def connection_template(tenant_id: str, grant: str, request: Request) -> dict[str, Any]:
     """The CloudFormation template for one grant.
 
     This is the single place the External ID legitimately appears: it has to,
-    because the customer's trust policy is built from it.
+    because the customer's trust policy is built from it. That makes this the
+    most sensitive read in the connections API — the External ID is the secret
+    that stops another of our customers tricking us into assuming a role we
+    already have access to (the confused-deputy problem this whole flow exists
+    to prevent). It was previously unauthenticated.
     """
+    authorize_tenant(request, tenant_id)
     conn = connection_store.get(tenant_id)
     if conn is None:
         raise HTTPException(status_code=404, detail=f"no connection for tenant '{tenant_id}'")

@@ -282,3 +282,117 @@ def test_gcp_planning_is_unaffected() -> None:
     calls, rollback, detail = GcpContainmentAdapter().plan(_gcp_action())
     assert "serviceAccountKeys.disable" in calls[0]
     assert "serviceAccountKeys.enable" in rollback
+
+
+# --------------------------------------------------------------------------- #
+# The connections API — a second surface with the same hole, plus unauthenticated
+# reads. All three were demonstrated against the running app before being fixed:
+#
+#   A. anonymous GET /api/connections returned every tenant's name, AWS account
+#      id and region — a customer list plus the identifiers to target them.
+#   B. an admin of one tenant repointed another tenant's contain_role_arn at an
+#      attacker-controlled ARN (HTTP 200) — defeating the External ID that the
+#      whole connect flow exists to protect.
+#   C. an admin of one tenant DELETED another tenant's cloud connection.
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def connect_api(tmp_path, monkeypatch):
+    registry = tmp_path / "ops.json"
+    registry.write_text(json.dumps({
+        "acme-admin": {"display_name": "Acme", "roles": ["admin"],
+                       "token_sha256": hash_token("acme-tok"), "active": True,
+                       "tenants": ["acme"]},
+        "evil-admin": {"display_name": "Evil", "roles": ["admin"],
+                       "token_sha256": hash_token("evil-tok"), "active": True,
+                       "tenants": ["evilcorp"]},
+    }))
+    for var, val in [
+        ("KRONAGENT_OPERATOR_REGISTRY", str(registry)),
+        ("KRONAGENT_CONNECTION_PATH", str(tmp_path / "conn.json")),
+        ("KRONAGENT_AUDIT_PATH", str(tmp_path / "audit.jsonl")),
+        ("KRONAGENT_APPROVAL_PATH", str(tmp_path / "appr.json")),
+        ("KRONAGENT_ALLOWLIST_PATH", str(tmp_path / "allow.json")),
+    ]:
+        monkeypatch.setenv(var, val)
+
+    import importlib
+
+    from fastapi.testclient import TestClient
+
+    from kronagent import web
+    importlib.reload(web)
+    web.connection_store.create(tenant_id="acme", account_id="999988887777",
+                                region="us-east-1")
+    yield TestClient(web.app), web
+    importlib.reload(web)
+
+
+def test_anonymous_cannot_enumerate_connected_tenants(connect_api) -> None:
+    client, _ = connect_api
+    assert client.get("/api/connections").json()["connections"] == []
+
+
+def test_listing_shows_only_the_callers_own_tenants(connect_api) -> None:
+    client, _ = connect_api
+    assert client.get("/api/connections", headers=EVIL).json()["connections"] == []
+    mine = client.get("/api/connections", headers=ACME).json()["connections"]
+    assert [c["tenant_id"] for c in mine] == ["acme"]
+
+
+def test_cannot_read_another_tenants_connection_detail(connect_api) -> None:
+    client, _ = connect_api
+    assert client.get("/api/connections/acme", headers=EVIL).status_code == 403
+
+
+def test_the_external_id_template_is_not_public(connect_api) -> None:
+    """The template is the one place the External ID legitimately appears — the
+    secret that prevents the confused-deputy problem. It was unauthenticated."""
+    client, _ = connect_api
+    assert client.get("/api/connections/acme/template/contain").status_code == 403
+    assert client.get("/api/connections/acme/template/contain", headers=EVIL).status_code == 403
+
+
+def test_cannot_repoint_another_tenants_containment_role(connect_api) -> None:
+    """Finding B. This previously returned 200 and set contain_role_arn to an
+    ARN the caller controlled."""
+    client, web = connect_api
+    r = client.post("/api/connections/acme/role", json={
+        "grant": "contain", "role_arn": "arn:aws:iam::111111111111:role/attacker",
+        "operator_id": "evil-admin", "token": "evil-tok"})
+    assert r.status_code == 403
+    assert "attacker" not in (web.connection_store.get("acme").contain_role_arn or "")
+
+
+def test_cannot_delete_another_tenants_connection(connect_api) -> None:
+    """Finding C — denial of the entire product for that tenant."""
+    client, web = connect_api
+    r = client.request("DELETE", "/api/connections/acme",
+                       json={"operator_id": "evil-admin", "token": "evil-tok"})
+    assert r.status_code == 403
+    assert web.connection_store.get("acme") is not None
+
+
+def test_an_operator_can_still_manage_its_own_connection(connect_api) -> None:
+    client, web = connect_api
+    r = client.request("DELETE", "/api/connections/acme",
+                       json={"operator_id": "acme-admin", "token": "acme-tok"})
+    assert r.status_code == 200
+    assert web.connection_store.get("acme") is None
+
+
+# --------------------------------------------------------------------------- #
+# The Slack webhook
+# --------------------------------------------------------------------------- #
+
+def test_slack_refuses_when_no_signing_secret_is_configured(connect_api) -> None:
+    """This endpoint is internet-reachable by design, and its unauthenticated
+    fallback grants the caller the admin role — so skipping signature
+    verification when the secret was unset turned "anyone who can POST here"
+    into "anyone can approve containment". Other surfaces may treat missing auth
+    as a local single-operator posture; a public webhook cannot.
+    """
+    client, _ = connect_api
+    r = client.post("/api/slack/interactive", content=b"payload=%7B%7D")
+    assert r.status_code == 503
+    assert "SIGNING_SECRET" in r.json()["detail"]
