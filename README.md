@@ -287,7 +287,7 @@ demo_trajectory.py     adversarial trajectory-guard walkthrough
 testbed/               local SQS emulator (no AWS account, no Docker)
 deploy/                IAM policies, CloudFormation/Bicep/Terraform launch templates, Kubernetes Helm chart
 samples/                real-schema sample findings (AWS, Azure, Cloudflare, GCP, K8s, on-prem)
-tests/                 612 tests, offline, ~23s
+tests/                 633 tests, offline, ~23s
 ```
 
 ---
@@ -299,7 +299,7 @@ python3 -m pip install -r requirements-dev.txt
 python3 -m pytest -q
 ```
 
-612 fully offline, deterministic unit and integration tests passing cleanly. Coverage highlights: the policy engine's safety ceiling (destructive actions proven to never auto-execute, even if allowlisted), the audit log's tamper-evidence (mutation-tested, not just asserted), the behavioral-trajectory guard (scope integrity, runaway rate, and latching — all with injected clocks rather than sleeps), a **cross-provider scope invariant** asserting that every planned action, for every provider, targets a resource its finding actually implicates (mutation-tested against a real defect this caught in the GCP planner), the approval-provider round-trip, forensics-before-containment ordering (mutation-tested), live ingestion against a real SQS server, SQLite/PostgreSQL-backed storage engine persistence, self-serve cloud connection web APIs (`/api/connect/...`), real-time SSE event stream (`/api/events/stream`), OCSF SIEM export (`/api/export/siem`), and EU AI Act compliance report generation.
+633 fully offline, deterministic unit and integration tests passing cleanly. Coverage highlights: the policy engine's safety ceiling (destructive actions proven to never auto-execute, even if allowlisted), the audit log's tamper-evidence (mutation-tested, not just asserted), the behavioral-trajectory guard (scope integrity, runaway rate, and latching — all with injected clocks rather than sleeps), a **cross-provider scope invariant** asserting that every planned action, for every provider, targets a resource its finding actually implicates (mutation-tested against a real defect this caught in the GCP planner), the approval-provider round-trip, forensics-before-containment ordering (mutation-tested), live ingestion against a real SQS server, SQLite/PostgreSQL-backed storage engine persistence, self-serve cloud connection web APIs (`/api/connect/...`), real-time SSE event stream (`/api/events/stream`), OCSF SIEM export (`/api/export/siem`), **cross-tenant isolation at the HTTP boundary** (an operator of one tenant proven unable to read or approve another's containment — mutation-tested), GCP's refusal to report containment it did not perform, and EU AI Act compliance report generation.
 
 ---
 
@@ -320,9 +320,9 @@ This is a fully functional, enterprise-ready vertical slice:
 - **Five Ingestion Substrates**: AWS (GuardDuty/IAM/EC2), Azure (Defender for Cloud/VMs/Entra ID), GCP (Security Command Center/IAM Service Accounts/Compute VMs), Kubernetes (API Audit/NetworkPolicy/Nodes), and in-house/on-premises (hosts, accounts, processes). All five ingest, normalize, plan and gate through one pipeline; live-execution depth varies by provider — see the table below.
 - **Graduated Autonomy & Governance**: Deterministic policy engine, live-reloadable allowlist store, ChatOps (Slack Block Kit & Webhooks), and RBAC/OIDC SSO authentication.
 - **Behavioral-Trajectory Guard**: A deterministic automatic kill switch over Kronagent's *own* action stream — scope-integrity enforcement (an action may only target a resource its finding implicates) plus a runaway-rate limiter that latches a platform-wide halt. The halt is **persisted**, so it survives a process restart rather than being silently released by one, and is released only by an audited, admin-gated `halt.py clear` — which a running orchestrator observes immediately, with no restart.
-- **Enterprise Isolation & Web Console**: Multi-tenant business-unit isolation, single-page Analyst Web Console (`run_console.py`), and OCSF SIEM exporter (`run_siem_export.py`).
+- **Enterprise Isolation & Web Console**: Multi-tenant business-unit isolation with operators scoped to tenants (an operator may only read or act on tenants their registry entry grants; `*` for platform/MSSP operators), single-page Analyst Web Console (`run_console.py`), and OCSF SIEM exporter (`run_siem_export.py`).
 - **Security & Integrity**: Cryptographic agent-to-agent non-repudiation signatures, `Permission.VIEW` REST endpoint access control, target-preservation sanitization, and continuous chaos rollback validation (`run_cloud_drill.py`).
-- **Test Suite**: 605 fully offline, deterministic unit and integration tests passing cleanly.
+- **Test Suite**: 633 fully offline, deterministic unit and integration tests passing cleanly.
 
 ### Live containment execution by provider
 
@@ -333,7 +333,7 @@ differs is how much has been wired to real APIs:
 |---|---|---|
 | Kubernetes | All action classes | ✅ Kind + Calico cluster, traffic provably blocked |
 | AWS | All action classes | ❌ Not yet run against a real account |
-| GCP | All action classes (simulated state transitions) | ❌ |
+| GCP | **Planning only — live execution refuses.** `perform()` previously updated an in-memory set and reported success without calling GCP, so a live credential was certified as revoked in the audit log. It now raises rather than reporting containment it did not perform. | ❌ |
 | On-premises | All four action classes | ❌ Requires a configured control-plane URL |
 | Azure | `deallocate_vm` only — NSG isolation and Entra ID actions raise `NotImplementedError` rather than guess at NIC resolution or Graph consent | ❌ |
 
