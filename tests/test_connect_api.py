@@ -272,9 +272,15 @@ def test_registry_gates_connection_changes(client, tmp_path, monkeypatch) -> Non
     registry = tmp_path / "ops.json"
     registry.write_text(json.dumps({
         "viewer": {"display_name": "V", "roles": ["viewer"],
-                   "token_sha256": hash_token("viewer-tok"), "active": True},
+                   "token_sha256": hash_token("viewer-tok"), "active": True,
+                   "tenants": ["acme"]},
+        # Scoped to the tenant it manages. Permissions say what an operator may
+        # do; `tenants` says whose account they may do it to, and both are now
+        # required — an admin of one tenant could previously repoint or delete
+        # another tenant's cloud connection.
         "admin": {"display_name": "A", "roles": ["admin"],
-                  "token_sha256": hash_token("admin-tok"), "active": True},
+                  "token_sha256": hash_token("admin-tok"), "active": True,
+                  "tenants": ["acme"]},
     }))
     monkeypatch.setattr(web, "settings", _settings(tmp_path, str(registry)))
 
