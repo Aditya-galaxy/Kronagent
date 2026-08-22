@@ -191,12 +191,30 @@ def plan_gcp_actions(finding: Finding) -> list[ProposedAction]:
 # --------------------------------------------------------------------------- #
 
 class GcpContainmentAdapter:
-    """Executes containment actions against GCP IAM and Compute Engine APIs."""
+    """Plans GCP IAM / Compute containment. Live execution is NOT implemented.
+
+    `perform()` used to update an in-memory set and return a success string
+    without calling GCP at all. In live mode the executor saw no exception and
+    recorded `executed=True` with "EXECUTED — service account key ... set to
+    disabled" into the hash-chained audit log — so a compromised credential
+    stayed active while the platform certified, in signed compliance evidence,
+    that it had been revoked. A false containment guarantee is worse than an
+    absent one: an absent one gets noticed.
+
+    Live execution now refuses instead, matching what every other provider does
+    for an unimplemented action. `simulate=True` restores the in-memory
+    behaviour for tests, and must never be set in a deployment — hence
+    `build_containment_adapters` leaving it at the default.
+
+    Planning is unaffected: `plan()` is pure and honest, so dry-run continues to
+    show exactly the API calls a real implementation would make.
+    """
 
     provider = PROVIDER
 
-    def __init__(self, project_id: str = "") -> None:
+    def __init__(self, project_id: str = "", *, simulate: bool = False) -> None:
         self.project_id = project_id
+        self._simulate = simulate
         # State tracking for simulated test mode execution
         self.disabled_keys: set[str] = set()
         self.disabled_accounts: set[str] = set()
@@ -232,7 +250,17 @@ class GcpContainmentAdapter:
         return calls, rollback, detail
 
     async def perform(self, action: ProposedAction) -> tuple[str, str]:
-        # Perform asynchronous API call execution (or simulated state update)
+        # Fail loudly rather than reporting a containment that did not happen.
+        # The executor catches this and records EXECUTION FAILED, so an operator
+        # sees that the credential is still live and can act on it.
+        if not self._simulate:
+            raise NotImplementedError(
+                f"live GCP execution for {action.action_class.value} is not implemented — "
+                f"the action was NOT performed. Plan it in dry-run, or contain this "
+                f"resource by another route."
+            )
+
+        # Simulated path: tests only. Never reached in a deployment.
         await asyncio.sleep(0.01)
 
         if action.action_class == ActionClass.DISABLE_SERVICE_ACCOUNT_KEY:

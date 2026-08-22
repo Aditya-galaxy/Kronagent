@@ -24,7 +24,12 @@ from .config import Settings
 from .approvals import ApprovalStore, now_iso
 from .allowlist import AllowlistStore, DurationError, parse_duration
 from .audit import AuditLog
-from .identity import resolve_actor, Permission, AuthorizationError
+from .identity import (
+    DEFAULT_TENANT,
+    AuthorizationError,
+    Permission,
+    resolve_actor,
+)
 from .policy import PolicyEngine
 from .containment import ContainmentExecutor
 from .providers import build_containment_adapters
@@ -65,13 +70,82 @@ audit_log = AuditLog(settings.audit_log_path)
 
 
 def resolve_tenant_id(request: Request) -> str:
+    """The tenant this request is asking about.
+
+    This value is entirely client-supplied, so it is a REQUEST, not a claim of
+    entitlement. `authorize_tenant` below decides whether the caller may have
+    it. Keeping those two steps separate is the point: they were previously one
+    step, and the missing half meant any caller could read — and any
+    authenticated operator could act on — any tenant by editing a URL.
+    """
     tid = request.query_params.get("tenant_id")
     if tid:
         return tid
     tid = request.headers.get("X-Tenant-ID")
     if tid:
         return tid
-    return "default"
+    return DEFAULT_TENANT
+
+
+def authorize_tenant(request: Request, tenant_id: str) -> None:
+    """Authorize the caller for `tenant_id`, or raise 403.
+
+    Naming a tenant other than the default is inherently a cross-tenant
+    operation, so it requires a verified identity scoped to that tenant —
+    regardless of `require_view_auth`, which governs whether *reading your own*
+    tenant needs auth. Without that carve-out, a deployment with
+    require_view_auth off would still leak every tenant to an anonymous caller.
+    """
+    if tenant_id == DEFAULT_TENANT:
+        return  # the single-tenant path; require_view_auth governs it as before
+
+    from .identity import registry_configured, resolve_actor
+
+    if not (registry_configured(settings.operator_registry_path)
+            or (settings.oidc_issuer and settings.oidc_audience)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(f"tenant '{tenant_id}' requested but no operator registry or OIDC "
+                    f"issuer is configured — cross-tenant access cannot be authorized."),
+        )
+
+    operator_id = request.headers.get("X-Operator-ID")
+    token = request.headers.get("X-Operator-Token")
+    if not operator_id or not token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"tenant '{tenant_id}' requires an authenticated operator.",
+        )
+
+    try:
+        actor = resolve_actor(
+            registry_path=settings.operator_registry_path,
+            required=Permission.VIEW,
+            operator_id=operator_id,
+            token=token,
+            oidc_issuer=settings.oidc_issuer,
+            oidc_audience=settings.oidc_audience,
+            oidc_jwks_uri=settings.oidc_jwks_uri,
+            oidc_verify_signature=settings.oidc_verify_signature,
+            oidc_roles_claim=settings.oidc_roles_claim,
+        )
+    except AuthorizationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+
+    if not actor.may_access(tenant_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(f"operator '{actor.operator_id}' is not authorized for tenant "
+                    f"'{tenant_id}' (permitted: {actor.tenants})."),
+        )
+
+
+def tenant_scope(request: Request) -> str:
+    """Resolve AND authorize in one call — the form endpoints should use, so a
+    new endpoint cannot resolve a tenant while forgetting to authorize it."""
+    tenant_id = resolve_tenant_id(request)
+    authorize_tenant(request, tenant_id)
+    return tenant_id
 
 
 def get_approval_store(tenant_id: str) -> ApprovalStore:
@@ -164,7 +238,7 @@ def read_index() -> str:
 def get_status(request: Request) -> dict[str, Any]:
     """Retrieve system configuration switches and audit log verification integrity."""
     check_view_permission(request)
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     verified, _ = AuditLog.verify(get_tenant_path(settings.audit_log_path, tenant_id))
     return {
         "dry_run": settings.dry_run,
@@ -178,7 +252,7 @@ async def stream_events(request: Request, once: bool = False) -> StreamingRespon
     """Stream real-time system events, audit records, and approval queue updates via Server-Sent Events (SSE)."""
     import asyncio
     check_view_permission(request)
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
 
     async def event_generator():
         # Connection ping event
@@ -212,7 +286,7 @@ async def stream_events(request: Request, once: bool = False) -> StreamingRespon
 def export_siem(request: Request) -> dict[str, Any]:
     """Verify audit log integrity and return OCSF-compliant SIEM events for the active tenant."""
     check_view_permission(request)
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     log_path = get_tenant_path(settings.audit_log_path, tenant_id)
 
     if not os.path.exists(log_path):
@@ -256,7 +330,7 @@ def export_siem(request: Request) -> dict[str, Any]:
 def create_aws_link(req: AwsLinkRequest, request: Request) -> dict[str, Any]:
     """Generate a 1-click CloudFormation launch stack URL for onboarding AWS accounts."""
     check_view_permission(request)
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     conn_store = ConnectionStore(get_tenant_path(settings.connection_store_path, tenant_id))
 
     grant = Grant.OBSERVE if req.grant == "observe" else Grant.CONTAIN
@@ -284,7 +358,7 @@ def create_aws_link(req: AwsLinkRequest, request: Request) -> dict[str, Any]:
 def verify_aws_connection(req: AwsVerifyRequest, request: Request) -> dict[str, Any]:
     """Record an assumed role ARN and perform live STS AssumeRole preflight verification."""
     check_view_permission(request)
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     conn_store = ConnectionStore(get_tenant_path(settings.connection_store_path, tenant_id))
 
     conn = conn_store.get(tenant_id)
@@ -313,7 +387,7 @@ def verify_aws_connection(req: AwsVerifyRequest, request: Request) -> dict[str, 
 def list_cloud_connections(request: Request) -> list[dict[str, Any]]:
     """List all registered cloud connections and permission grants for the tenant."""
     check_view_permission(request)
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     conn_store = ConnectionStore(get_tenant_path(settings.connection_store_path, tenant_id))
 
     conns = conn_store.list()
@@ -340,7 +414,7 @@ def list_cloud_connections(request: Request) -> list[dict[str, Any]]:
 def list_approvals(request: Request) -> list[Any]:
     """Retrieve all logged approval requests from the store."""
     check_view_permission(request)
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     store = get_approval_store(tenant_id)
     return [r.model_dump() for r in store.list()]
 
@@ -348,7 +422,7 @@ def list_approvals(request: Request) -> list[Any]:
 @app.post("/api/approvals/{request_id}/action")
 async def execute_approval_action(request_id: str, req: ActionRequest, request: Request) -> dict[str, Any]:
     """Approve/authorize and run, or reject/deny a pending containment action request."""
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     store = get_approval_store(tenant_id)
     audit_log_resolved = get_audit_log(tenant_id)
 
@@ -472,7 +546,7 @@ async def execute_approval_action(request_id: str, req: ActionRequest, request: 
 def get_audit_trail(request: Request) -> list[dict[str, Any]]:
     """Retrieve chronological event history from the append-only audit log."""
     check_view_permission(request)
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     records = []
     audit_path = get_tenant_path(settings.audit_log_path, tenant_id)
     if not os.path.exists(audit_path):
@@ -503,7 +577,7 @@ def list_allowlist(request: Request) -> list[str]:
     deciding whether to renew one needs to see it.
     """
     check_view_permission(request)
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     store = get_allowlist_store(tenant_id)
     return [entry.action_class for entry in store.active()]
 
@@ -525,7 +599,7 @@ def review_allowlist(request: Request) -> list[dict[str, Any]]:
     exact classification the safety ceiling is built on.
     """
     check_view_permission(request)
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     store = get_allowlist_store(tenant_id)
     policy = PolicyEngine(settings, store)
 
@@ -561,7 +635,7 @@ def review_allowlist(request: Request) -> list[dict[str, Any]]:
 @app.post("/api/allowlist/promote")
 async def promote_allowlist_class(req: PromoteRequest, request: Request) -> dict[str, Any]:
     """Add a containment action class to the autonomous allowlist."""
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     store = get_allowlist_store(tenant_id)
     audit_log_resolved = get_audit_log(tenant_id)
 
@@ -623,7 +697,7 @@ async def promote_allowlist_class(req: PromoteRequest, request: Request) -> dict
 async def reassign_allowlist_owner(req: ReassignRequest, request: Request) -> dict[str, Any]:
     """Hand an entry to a new accountable owner, leaving the promotion history
     intact. PROMOTE-gated: moving ownership moves who can renew the entry."""
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     store = get_allowlist_store(tenant_id)
     audit_log_resolved = get_audit_log(tenant_id)
 
@@ -676,7 +750,7 @@ async def reassign_allowlist_owner(req: ReassignRequest, request: Request) -> di
 @app.post("/api/allowlist/demote")
 async def demote_allowlist_class(req: PromoteRequest, request: Request) -> dict[str, Any]:
     """Remove a containment action class from the autonomous allowlist."""
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     store = get_allowlist_store(tenant_id)
     audit_log_resolved = get_audit_log(tenant_id)
 
@@ -725,7 +799,7 @@ async def demote_allowlist_class(req: PromoteRequest, request: Request) -> dict[
 def get_dashboard_metrics(request: Request) -> dict[str, int]:
     """Compile summary metrics counting total, autonomous, and human-approved action lifecycles."""
     check_view_permission(request)
-    tenant_id = resolve_tenant_id(request)
+    tenant_id = tenant_scope(request)
     store = get_approval_store(tenant_id)
     audit_path = get_tenant_path(settings.audit_log_path, tenant_id)
 

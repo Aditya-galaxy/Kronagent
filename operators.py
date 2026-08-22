@@ -31,7 +31,7 @@ import sys
 import tempfile
 
 from kronagent.config import Settings
-from kronagent.identity import hash_token, known_roles
+from kronagent.identity import ALL_TENANTS, DEFAULT_TENANT, hash_token, known_roles
 
 
 def _registry_path(args: argparse.Namespace) -> str:
@@ -73,6 +73,10 @@ def cmd_add(args: argparse.Namespace) -> int:
         print("A token is required.", file=sys.stderr)
         return 2
 
+    # Tenants answer "whose data", where roles answer "what may they do". An
+    # omitted --tenants means the default tenant only, never all of them.
+    tenants = [t.strip() for t in (args.tenants or "").split(",") if t.strip()]
+
     path = _registry_path(args)
     data = _load(path)
     data[args.operator_id] = {
@@ -80,9 +84,15 @@ def cmd_add(args: argparse.Namespace) -> int:
         "roles": roles,
         "token_sha256": hash_token(token),
         "active": True,
+        "tenants": tenants,
     }
     _save(path, data)
+    scope = ", ".join(tenants) if tenants else DEFAULT_TENANT
     print(f"Registered operator '{args.operator_id}' ({', '.join(roles)}) in {path}.")
+    print(f"Tenant scope: {scope}")
+    if ALL_TENANTS in tenants:
+        print(f"  ⚠ '{ALL_TENANTS}' grants access to EVERY tenant's incidents and "
+              f"containment decisions.")
     print("Only the token hash was stored; keep the token itself safe.")
     return 0
 
@@ -96,8 +106,9 @@ def cmd_list(args: argparse.Namespace) -> int:
     print(f"Operators in {path}:")
     for oid, rec in sorted(data.items()):
         status = "" if rec.get("active", True) else "  [disabled]"
+        scope = ", ".join(rec.get("tenants") or [DEFAULT_TENANT])
         print(f"  {oid:16} {', '.join(rec.get('roles', [])) or 'no roles':24} "
-              f"{rec.get('display_name', '')}{status}")
+              f"tenants={scope:20} {rec.get('display_name', '')}{status}")
     return 0
 
 
@@ -134,6 +145,9 @@ def main() -> int:
     p_add.add_argument("--name", help="display name")
     p_add.add_argument("--roles", required=True, help="comma-separated: viewer,approver,admin")
     p_add.add_argument("--token", help="auth token (omit to be prompted; never stored in clear)")
+    p_add.add_argument("--tenants",
+                       help=f"comma-separated tenants this operator may act on. "
+                            f"Omit for '{DEFAULT_TENANT}' only; '{ALL_TENANTS}' grants every tenant.")
 
     sub.add_parser("list", help="list registered operators")
 

@@ -69,11 +69,26 @@ def known_roles() -> list[str]:
     return sorted(_ROLE_PERMISSIONS)
 
 
+# A tenants entry of "*" grants access to every tenant — for a platform or MSSP
+# operator. It is spelled explicitly so that granting it is a visible, auditable
+# decision in the registry rather than an accident of an omitted field.
+ALL_TENANTS = "*"
+DEFAULT_TENANT = "default"
+
+
 class Operator(BaseModel):
     operator_id: str
     display_name: str
     roles: list[str] = Field(default_factory=list)
     active: bool = True
+    # Tenants this operator may act on. Empty means the default tenant ONLY —
+    # deliberately the narrowest reading, so an existing single-tenant registry
+    # keeps working while a multi-tenant deployment cannot silently inherit
+    # cross-tenant access from a field nobody filled in.
+    tenants: list[str] = Field(default_factory=list)
+
+    def permitted_tenants(self) -> list[str]:
+        return self.tenants or [DEFAULT_TENANT]
 
     def permissions(self) -> frozenset[Permission]:
         perms: set[Permission] = set()
@@ -95,6 +110,20 @@ class AuthContext(BaseModel):
     roles: list[str] = Field(default_factory=list)
     identity_verified: bool
     auth_method: str  # "local_token" | "unauthenticated"
+    tenants: list[str] = Field(default_factory=lambda: [DEFAULT_TENANT])
+
+    def may_access(self, tenant_id: str) -> bool:
+        """Whether this actor may read or act on `tenant_id`.
+
+        Permissions answer *what* an operator may do; this answers *whose data*
+        they may do it to. Both are required. Without this the RBAC gate was
+        complete and still allowed an admin of one tenant to approve another
+        tenant's production containment, because nothing tied an identity to a
+        tenant at all.
+        """
+        if ALL_TENANTS in self.tenants:
+            return True
+        return (tenant_id or DEFAULT_TENANT) in (self.tenants or [DEFAULT_TENANT])
 
     @property
     def label(self) -> str:
@@ -109,6 +138,7 @@ class AuthContext(BaseModel):
             "roles": self.roles,
             "identity_verified": self.identity_verified,
             "auth_method": self.auth_method,
+            "tenants": self.tenants,
         }
 
 
@@ -159,6 +189,7 @@ class LocalIdentityProvider:
             display_name=record.get("display_name", operator_id),
             roles=list(record.get("roles", [])),
             active=bool(record.get("active", True)),
+            tenants=list(record.get("tenants", [])),
         )
 
     def authenticate(self, operator_id: str, token: Optional[str]) -> Optional[Operator]:
@@ -176,6 +207,7 @@ class LocalIdentityProvider:
             display_name=record.get("display_name", operator_id),
             roles=list(record.get("roles", [])),
             active=bool(record.get("active", True)),
+            tenants=list(record.get("tenants", [])),
         )
 
 
@@ -310,11 +342,23 @@ class OidcIdentityProvider:
         else:
             roles = []
 
+        # Tenants from a claim, same shape as roles. Absent claim means the
+        # default tenant only — an SSO identity must not inherit cross-tenant
+        # access from an IdP that was never configured to express it.
+        tenants_val = payload.get("tenants", [])
+        if isinstance(tenants_val, str):
+            tenants = [tenants_val]
+        elif isinstance(tenants_val, list):
+            tenants = [str(t) for t in tenants_val]
+        else:
+            tenants = []
+
         return Operator(
             operator_id=operator_id,
             display_name=payload.get("name") or payload.get("email") or operator_id,
             roles=roles,
-            active=True
+            active=True,
+            tenants=tenants,
         )
 
 
@@ -370,6 +414,7 @@ def resolve_actor(
             roles=operator.roles,
             identity_verified=True,
             auth_method="oidc",
+            tenants=operator.permitted_tenants(),
         )
 
     # 2. Local Registry Authentication
@@ -393,6 +438,7 @@ def resolve_actor(
             roles=operator.roles,
             identity_verified=True,
             auth_method="local_token",
+            tenants=operator.permitted_tenants(),
         )
 
     # 3. Unauthenticated fallback
@@ -406,4 +452,5 @@ def resolve_actor(
         roles=[],
         identity_verified=False,
         auth_method="unauthenticated",
+        tenants=[DEFAULT_TENANT],
     )

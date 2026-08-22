@@ -76,7 +76,7 @@ def test_plan_gcp_actions():
 
 @pytest.mark.asyncio
 async def test_gcp_containment_adapter_perform_and_rollback():
-    adapter = GcpContainmentAdapter(project_id="demo-project")
+    adapter = GcpContainmentAdapter(project_id="demo-project", simulate=True)
 
     # 1. Plan & Perform DISABLE_SERVICE_ACCOUNT_KEY
     action_key = ProposedAction(
@@ -107,7 +107,7 @@ async def test_gcp_containment_adapter_perform_and_rollback():
 @pytest.mark.asyncio
 async def test_gcp_containment_executor_integration():
     settings = Settings(dry_run=False)
-    adapter = GcpContainmentAdapter()
+    adapter = GcpContainmentAdapter(simulate=True)
     executor = ContainmentExecutor(settings, {"gcp": adapter})
 
     action = ProposedAction(
