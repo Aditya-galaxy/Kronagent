@@ -31,6 +31,9 @@ def settings(tmp_path) -> Settings:
         audit_log_path=str(tmp_path / "audit.jsonl"),
         approval_store_path=str(tmp_path / "approvals.json"),
         allowlist_store_path=str(tmp_path / "allowlist.json"),
+        # Never the repo-root runtime file: tests must not depend on whichever
+        # account a developer last connected.
+        connection_store_path=str(tmp_path / "connections.json"),
     )
 
 

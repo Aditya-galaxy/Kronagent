@@ -67,6 +67,7 @@ from kronagent.allowlist import (
 from kronagent.audit import AuditLog
 from kronagent.classification import providers_for
 from kronagent.config import Settings
+from kronagent.connect import BINDABLE_PROVIDERS, tenant_environment
 from kronagent.identity import (
     DEFAULT_TENANT, AuthContext, AuthorizationError, Permission, owner_vacancy_checker,
     resolve_actor,
@@ -166,6 +167,10 @@ def _is_auto_eligible(policy: PolicyEngine, action_class: str) -> Optional[bool]
         return None
 
 
+# Set in main(); _standing_flags reads the tenant's connection through it.
+_CONNECTIONS = ""
+
+
 def _owner_check(settings: Settings):
     # This CLI governs the default tenant's store (settings.allowlist_store_path).
     return owner_vacancy_checker(settings.operator_registry_path, DEFAULT_TENANT)
@@ -180,6 +185,12 @@ def _standing_flags(e: AllowlistEntry, owner_check, now: datetime) -> list[str]:
     drift = e.classification_drift()
     if drift is not None:
         return [f"RECLASSIFIED — {drift}"]
+    try:
+        moved = e.environment_drift(tenant_environment(_CONNECTIONS, DEFAULT_TENANT))
+    except RuntimeError:
+        return ["ACCOUNT UNKNOWN — the connection store is unreadable"]
+    if moved is not None:
+        return [f"ACCOUNT CHANGED — {moved}"]
     vacancy = owner_check(e.owner) if owner_check else None
     if vacancy is not None:
         return [f"OWNER NOT IN STANDING — {vacancy.reason}"]
@@ -285,8 +296,13 @@ def cmd_review(store: AllowlistStore, audit: AuditLog, settings: Settings,
                 reasons.append("suspended")
             elif e.classification_drift() is not None:
                 reasons.append("reclassified")
+            elif any(flag.startswith("ACCOUNT") for flag in _standing_flags(e, None, now)):
+                reasons.append("account changed")
             elif owner_check is not None and owner_check(e.owner) is not None:
                 reasons.append("owner not in standing")
+        if (e.environment is None and not e.is_expired(now)
+                and set(e.provider_scope or _providers(e.action_class)) & set(BINDABLE_PROVIDERS)):
+            reasons.append("not bound to an account — renew to bind it")
         if e.provider_scope is None and len(_providers(e.action_class)) > 1:
             reasons.append("covers every provider — renew with --provider to scope it")
         if e.classification is None and _is_auto_eligible(policy, e.action_class) is not None:
@@ -394,10 +410,16 @@ def cmd_add(store: AllowlistStore, audit: AuditLog, settings: Settings,
     policy = PolicyEngine(settings, store)
     renewal = any(e.action_class == ac.value for e in store.list())
     try:
+        environment = tenant_environment(settings.connection_store_path, DEFAULT_TENANT)
+    except RuntimeError as exc:
+        print(f"REFUSED: {exc}. A promotion is bound to the account its actions run in, and "
+              f"that account cannot be determined.", file=sys.stderr)
+        return 2
+    try:
         entry = asyncio.run(store.add(ac, by=actor.operator_id, reason=args.reason, audit=audit,
                                       actor_fields=actor.audit_fields(), expires_in=expires_in,
                                       owner=args.owner, owner_check=_owner_check(settings),
-                                      providers=args.providers))
+                                      providers=args.providers, environment=environment))
     except OwnerNotInStandingError as exc:
         return _refuse_owner(exc)
     except ProviderScopeError as exc:
@@ -409,6 +431,10 @@ def cmd_add(store: AllowlistStore, audit: AuditLog, settings: Settings,
     print(f"  Owner: {entry.owner} — the one asked to renew it, and the one who says yes again.")
     print(f"  Covers: {', '.join(entry.provider_scope or [])} — the gate refuses it on any other "
           f"provider.")
+    for provider, account in sorted((entry.environment or {}).items()):
+        where = f"account {account}" if account else "ambient process credentials (no connection)"
+        print(f"  Bound: {provider} actions run in {where} — connecting this tenant to a "
+              f"different account suspends it.")
     if entry.expires_at:
         print(f"  Expires {entry.expires_at} ({args.expires_in}) — after that it requires human "
               f"approval again until an operator renews it.")
@@ -514,6 +540,8 @@ def cmd_reassign(store: AllowlistStore, audit: AuditLog, settings: Settings,
 
 def main() -> int:
     settings = Settings.from_env()
+    global _CONNECTIONS
+    _CONNECTIONS = settings.connection_store_path
     store = AllowlistStore(settings.allowlist_store_path, seed=settings.auto_execute_allowlist)
     audit = AuditLog(settings.audit_log_path)
 
@@ -592,6 +620,12 @@ def main() -> int:
     for lapsed in asyncio.run(store.expire_due(audit=audit)):
         print(f"EXPIRED: {lapsed.action_class} — TTL elapsed at {lapsed.expires_at}; it requires "
               f"human approval again until renewed (recorded in the audit log).", file=sys.stderr)
+    for entry, moved in asyncio.run(store.suspend_environment_changed(
+            audit=audit,
+            environment=lambda: tenant_environment(settings.connection_store_path, DEFAULT_TENANT))):
+        print(f"SUSPENDED: {entry.action_class} — {moved}; it requires human approval until "
+              f"renewed for the account it now runs in (recorded in the audit log).",
+              file=sys.stderr)
     for entry, drift in asyncio.run(store.suspend_reclassified(audit=audit)):
         print(f"SUSPENDED: {entry.action_class} — {drift}; it requires human approval until "
               f"renewed against its current classification (recorded in the audit log).",

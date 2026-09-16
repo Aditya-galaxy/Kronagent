@@ -1031,3 +1031,20 @@ class ConnectionStore:
             if existed:
                 self._write_all(data)
         return existed
+
+
+# Providers whose containment account is decided by a tenant connection, and
+# so can change underneath an allowlist entry. Only AWS has a connect flow.
+BINDABLE_PROVIDERS: tuple[str, ...] = ("aws",)
+
+
+def tenant_environment(connection_store_path: str, tenant_id: str) -> dict[str, Optional[str]]:
+    """Which account each bindable provider's containment would run in.
+
+    `{"aws": "123456789012"}` when the tenant is connected; `{"aws": None}`
+    when it is not, which is when containment runs on the process's own
+    ambient credentials. Raises RuntimeError if the connection store is
+    corrupt: an unknown account is not the same as no account.
+    """
+    conn = ConnectionStore(connection_store_path).get(tenant_id) if connection_store_path else None
+    return {"aws": conn.account_id if conn else None}

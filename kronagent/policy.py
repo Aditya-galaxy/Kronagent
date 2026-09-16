@@ -42,6 +42,7 @@ from typing import Optional
 
 from .allowlist import AllowlistStore
 from .config import Settings
+from .connect import tenant_environment
 from .classification import _ACTION_PROPERTIES, action_properties  # noqa: F401 — re-exported
 from .identity import owner_vacancy_checker
 from .schemas import ActionClass, BlastRadius, PolicyDecision, ProposedAction
@@ -105,6 +106,7 @@ class PolicyEngine:
         owner_check = owner_vacancy_checker(s.operator_registry_path, action.tenant_id)
         allowlisted, entry_refusal = actual_allowlist.evaluate(
             action.action_class, owner_check=owner_check, provider=action.provider,
+            environment=lambda: tenant_environment(s.connection_store_path, action.tenant_id),
         )
 
         if auto_eligible and allowlisted:

@@ -60,6 +60,13 @@ hard part. Kronagent's answer is **earn-trust, graduated autonomy**:
   without naming which ones (`promote.py add block_ip --provider aws`). The
   gate refuses the entry on any other provider. Entries written before scoping
   still cover every provider, as they always did, and review flags them.
+- **Autonomy earned in one AWS account stays there.** A promotion records the
+  account its AWS actions ran in: the connected account, or none (the
+  process's own credentials). If the tenant is later connected to a different
+  account, say staging then production, the entry stops granting autonomy and
+  is suspended. Reconnecting the original account doesn't undo that; only a
+  renewal, made where the actions now run, does. If the connection store can't
+  be read, autonomy is refused and new promotions are blocked.
 - **The policy engine is the hard ceiling, not a suggestion.** Actions are
   classified by reversibility and blast radius. Destructive or wide-blast
   actions (terminate an instance, delete a pod, scale a deployment to zero)

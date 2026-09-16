@@ -39,6 +39,7 @@ from .identity import (
     resolve_actor,
 )
 from .classification import providers_for
+from .connect import tenant_environment
 from .policy import PolicyEngine
 from .containment import ContainmentExecutor
 from .providers import build_containment_adapters
@@ -594,6 +595,13 @@ def review_allowlist(request: Request) -> list[dict[str, Any]]:
     policy = PolicyEngine(settings, store)
     owner_check = owner_vacancy_checker(settings.operator_registry_path, tenant_id)
 
+    def _environment_standing(entry) -> dict[str, Any]:
+        try:
+            current = tenant_environment(settings.connection_store_path, tenant_id)
+        except RuntimeError:
+            return {"environment_drift": "the connection store is unreadable"}
+        return {"environment_drift": entry.environment_drift(current)}
+
     def _owner_standing(owner: str) -> dict[str, Any]:
         if owner_check is None:
             # Unchecked is not the same as fine, and the console must not
@@ -629,6 +637,7 @@ def review_allowlist(request: Request) -> list[dict[str, Any]]:
             "never_fired": entry.last_fired_at is None,
             **_owner_standing(entry.owner),
             "classification_drift": entry.classification_drift(),
+            **_environment_standing(entry),
             **_classify(entry.action_class),
         }
         for entry in store.list()
@@ -691,6 +700,7 @@ async def promote_allowlist_class(req: PromoteRequest, request: Request) -> dict
             owner=req.owner,
             owner_check=owner_vacancy_checker(settings.operator_registry_path, tenant_id),
             providers=req.providers,
+            environment=tenant_environment(settings.connection_store_path, tenant_id),
         )
     except OwnerNotInStandingError as exc:
         raise HTTPException(
@@ -699,6 +709,10 @@ async def promote_allowlist_class(req: PromoteRequest, request: Request) -> dict
         )
     except ProviderScopeError as exc:
         raise HTTPException(status_code=400, detail=f"Cannot promote {ac.value}: {exc}.")
+    except RuntimeError as exc:
+        # The connection store is unreadable: we cannot say which account this
+        # promotion would authorize actions in, so it is not made.
+        raise HTTPException(status_code=409, detail=f"Cannot promote {ac.value}: {exc}.")
     detail = f"Class {ac.value} successfully promoted."
     if entry.expires_at:
         detail += f" Expires {entry.expires_at}; requires renewal after that."
