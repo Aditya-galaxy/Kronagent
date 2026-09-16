@@ -21,6 +21,7 @@ from .approvals import ApprovalRequest, ApprovalStore
 from .audit import AuditLog
 from .commander import IncidentAssessment, IncidentCommanderAgent
 from .config import Settings
+from .connect import tenant_environment
 from .containment import ContainmentExecutor
 from .correlation import CorrelationAgent, CorrelationAssessment, CorrelationMemory
 from .forensics import ForensicsAgent, ForensicsResult
@@ -310,6 +311,17 @@ class Orchestrator:
                                    f"(promoted by {lapsed.promoted_by} at {lapsed.promoted_at}, "
                                    f"owner {lapsed.owner}) — "
                                    f"this class requires human approval again until renewed")
+        # And for a tenant now connected to a different account than the one
+        # its autonomy was earned in.
+        if hasattr(tenant_allowlist, "suspend_environment_changed"):
+            tenant_id = finding.tenant_id
+            for entry, moved in await tenant_allowlist.suspend_environment_changed(
+                    audit=tenant_audit,
+                    environment=lambda: tenant_environment(self._settings.connection_store_path,
+                                                           tenant_id)):
+                _log("GOVERNANCE", f"{entry.action_class}: allowlist entry SUSPENDED — {moved}; "
+                                   f"this class requires human approval until an operator "
+                                   f"renews it for the account it now runs in")
         # And for an action the policy table has reclassified since promotion.
         if hasattr(tenant_allowlist, "suspend_reclassified"):
             for entry, drift in await tenant_allowlist.suspend_reclassified(audit=tenant_audit):

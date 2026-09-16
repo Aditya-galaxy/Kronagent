@@ -72,6 +72,13 @@ this platform's safety case rests on. Three mechanisms close it:
     cannot be promoted without naming them, and the gate refuses the entry
     for any provider outside its scope. Entries written before scoping
     cover every provider, as they always did, and review flags them.
+  * **Environment binding.** Autonomy is earned in an environment. An entry
+    covering AWS records which account AWS containment ran in when it was
+    promoted — a connected account, or none (ambient process credentials).
+    If the tenant is later connected to a different account, the entry stops
+    holding and `suspend_environment_changed()` latches it: thirty quiet days
+    in staging are not evidence about production, and reconnecting a tenant
+    must not carry its autonomy across silently. Only a renewal lifts it.
   * **Review.** Everything a periodic review needs (who owns it, who promoted
     it, when, why, when it last fired, when it lapses) travels on the entry, so
     `promote.py review` can ask "does this still apply?" with the context in
@@ -133,6 +140,15 @@ def _seed_scope(action_class: str) -> Optional[list[str]]:
 
 SUSPENDED_OWNER_VACANT = "owner_vacant"
 SUSPENDED_RECLASSIFIED = "reclassified"
+SUSPENDED_ENVIRONMENT_CHANGED = "environment_changed"
+
+# Returns {provider: account-or-None} for the tenant; may raise when the
+# account cannot be determined. Built by `connect.tenant_environment`, injected.
+EnvironmentProbe = Callable[[], dict]
+
+
+def _account_phrase(account: Optional[str]) -> str:
+    return f"account {account}" if account else "ambient process credentials (no connection)"
 
 
 def _current_classification(action_class: str) -> Optional[dict]:
@@ -266,6 +282,10 @@ class AllowlistEntry(BaseModel):
     # they cover every provider that can carry out the class, as they always
     # did, and review flags a shared class promoted that way.
     provider_scope: Optional[list[str]] = None
+    # {provider: account-or-None} this promotion was made against, for the
+    # providers in scope whose account a connection decides. None on entries
+    # written before binding existed; those are not checked, and review says so.
+    environment: Optional[dict] = None
 
     def covers(self, provider: str) -> bool:
         return self.provider_scope is None or provider in self.provider_scope
@@ -288,6 +308,19 @@ class AllowlistEntry(BaseModel):
     @property
     def is_suspended(self) -> bool:
         return self.suspended_at is not None
+
+    def environment_drift(self, current: Optional[dict]) -> Optional[str]:
+        """How the account this entry's actions would run in has changed since
+        promotion, or None if it has not (or was never bound)."""
+        if self.environment is None or current is None:
+            return None
+        changes = [
+            f"{provider} actions were promoted in {_account_phrase(pinned)} but would now "
+            f"run in {_account_phrase(current[provider])}"
+            for provider, pinned in sorted(self.environment.items())
+            if provider in current and current[provider] != pinned
+        ]
+        return "; ".join(changes) or None
 
     def classification_drift(self) -> Optional[str]:
         """How this action's classification has changed since it was pinned,
@@ -359,6 +392,7 @@ class AllowlistStore:
     def evaluate(
         self, action_class: ActionClass, *, now: Optional[datetime] = None,
         owner_check: Optional[OwnerCheck] = None, provider: Optional[str] = None,
+        environment: Optional[EnvironmentProbe] = None,
     ) -> tuple[bool, Optional[str]]:
         """Whether this class is authorized for autonomy right now, and if an
         entry exists but does not hold, why not.
@@ -388,6 +422,16 @@ class AllowlistStore:
         drift = entry.classification_drift()
         if drift is not None:
             return False, f"allowlist entry no longer applies: {drift}"
+        if environment is not None and entry.environment:
+            try:
+                current = environment()
+            except Exception as exc:
+                # Not knowing which account we would act in grants nothing.
+                return False, (f"allowlist entry is bound to an account, and the current one "
+                               f"cannot be determined ({type(exc).__name__})")
+            moved = entry.environment_drift(current)
+            if moved is not None:
+                return False, f"allowlist entry no longer applies: {moved}"
         if owner_check is not None:
             vacancy = owner_check(entry.owner)
             if vacancy is not None:
@@ -396,9 +440,11 @@ class AllowlistStore:
 
     def is_allowed(
         self, action_class: ActionClass, *, now: Optional[datetime] = None,
-        owner_check: Optional[OwnerCheck] = None,
+        owner_check: Optional[OwnerCheck] = None, provider: Optional[str] = None,
+        environment: Optional[EnvironmentProbe] = None,
     ) -> bool:
-        return self.evaluate(action_class, now=now, owner_check=owner_check)[0]
+        return self.evaluate(action_class, now=now, owner_check=owner_check, provider=provider,
+                             environment=environment)[0]
 
     def list(self) -> list[AllowlistEntry]:
         """Every entry on file, expired ones included — `promote.py review`
@@ -429,6 +475,7 @@ class AllowlistStore:
         actor_fields: Optional[dict] = None, expires_in: Optional[timedelta] = None,
         owner: Optional[str] = None, now: Optional[datetime] = None,
         owner_check: Optional[OwnerCheck] = None, providers: Optional[Iterable[str]] = None,
+        environment: Optional[dict] = None,
     ) -> AllowlistEntry:
         """Promote a class, or renew it. A renewal is a fresh decision, so it
         also lifts any suspension — but only onto an owner who is in standing:
@@ -439,7 +486,12 @@ class AllowlistStore:
         `providers` scopes the promotion; see `resolve_provider_scope`. A
         renewal that names none keeps the scope it had, and one of a legacy
         unscoped entry on a shared class must name them. Raises
-        ProviderScopeError, writing nothing."""
+        ProviderScopeError, writing nothing.
+
+        `environment` is the tenant's current {provider: account} (see
+        `connect.tenant_environment`); the providers in scope are bound to it.
+        Every production write path passes it — a renewal re-binds to where
+        the actions run today."""
         previous = self._read_all().get(action_class.value)
         if providers is None and previous and previous.get("provider_scope"):
             providers = previous["provider_scope"]
@@ -452,6 +504,8 @@ class AllowlistStore:
             # the action as it is classified today.
             classification=pinned_classification(action_class),
             provider_scope=scope,
+            environment=(None if environment is None else
+                         {p: environment[p] for p in scope if p in environment}),
         )
         data = self._read_all()
         previous = data.get(action_class.value)
@@ -481,6 +535,7 @@ class AllowlistStore:
                 "lifted_suspension": (previous or {}).get("suspended_reason"),
                 "classification": entry.classification,
                 "provider_scope": scope,
+                "environment": entry.environment,
                 "previous_provider_scope": (previous or {}).get("provider_scope"),
                 **(actor_fields or {}),
             },
@@ -590,6 +645,59 @@ class AllowlistStore:
                 },
             ))
         return lapsed
+
+    async def suspend_environment_changed(
+        self, *, audit: AuditLog, environment: Optional[EnvironmentProbe],
+        now: Optional[datetime] = None,
+    ) -> list[tuple[AllowlistEntry, str]]:
+        """Latch a suspension on every entry whose bound account has changed.
+
+        Same contract as the other sweeps. Connecting the tenant back to the
+        original account does not undo it — that is an operator's connection
+        change, not a decision about autonomy. If the current account cannot be
+        determined, nothing is latched: the gate refuses, and a corrupt store
+        has not moved anyone's workloads.
+        """
+        if environment is None:
+            return []
+        try:
+            current = environment()
+        except Exception:
+            return []
+        now = now or _utcnow()
+        data = self._read_all()
+        suspended = []
+        for entry in self.list():
+            if entry.is_expired(now) or entry.is_suspended:
+                continue
+            moved = entry.environment_drift(current)
+            if moved is None:
+                continue
+            raw = data[entry.action_class]
+            raw["suspended_at"] = now.isoformat()
+            raw["suspended_trigger"] = SUSPENDED_ENVIRONMENT_CHANGED
+            raw["suspended_reason"] = moved
+            suspended.append((AllowlistEntry.model_validate(raw), moved))
+        if not suspended:
+            return []
+        self._write_all(data)
+        for entry, moved in suspended:
+            await audit.record(AuditRecord(
+                finding_id="_governance", stage="governance",
+                payload={
+                    "decision": "allowlist_suspended", "action_class": entry.action_class,
+                    "trigger": SUSPENDED_ENVIRONMENT_CHANGED,
+                    "by": "system", "reason": moved,
+                    "pinned_environment": entry.environment,
+                    "current_environment": {p: current.get(p) for p in entry.environment},
+                    "owner": entry.owner,
+                    "promoted_by": entry.promoted_by, "promoted_at": entry.promoted_at,
+                    "promotion_reason": entry.reason, "expires_at": entry.expires_at,
+                    "last_fired_at": entry.last_fired_at, "fire_count": entry.fire_count,
+                    "identity_verified": False, "auth_method": "system",
+                },
+            ))
+        return suspended
 
     async def suspend_vacant_owners(
         self, *, audit: AuditLog, owner_check: Optional[OwnerCheck],
