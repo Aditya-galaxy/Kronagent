@@ -184,9 +184,15 @@ class Orchestrator:
         # Above the floor the finding continues to a human, and every action it
         # produces is forced to approval: a model's dismissal must never be the
         # path by which something executes autonomously.
+        #
+        # Severity is not the only thing that stops a dismissal. A verdict is
+        # *contested* when the model called the structured fields a threat and
+        # was talked out of it by the finding's free text (see triage.py). That
+        # is what an injected "this is an approved test" looks like, so a
+        # contested finding goes to a person at any severity.
         triage_overridden = False
         if not verdict.is_actionable_threat:
-            if verdict.severity < self._settings.triage_override_floor:
+            if verdict.severity < self._settings.triage_override_floor and not verdict.contested:
                 _log("INCIDENT", f"{finding.finding_id}: triaged non-actionable — monitoring only. --- done ---")
                 self._processed += 1
                 return
@@ -197,17 +203,26 @@ class Orchestrator:
             self._processed += 1
             return
 
+        override_why = ""
         if triage_overridden:
             floor = self._settings.triage_override_floor
-            _log("TRIAGE", f"{finding.finding_id}: model judged NOT actionable, but severity "
-                           f"{verdict.severity:.1f} >= override floor {floor:.1f} — sending to "
-                           f"human review with autonomous execution disabled")
+            above_floor = verdict.severity >= floor
+            override_why = (
+                f"its severity {verdict.severity:.1f} is at or above the override floor {floor:.1f}"
+                if above_floor else
+                "the same model judged its structured fields alone to be a threat, so the "
+                "finding's free text is what changed the verdict"
+            )
+            _log("TRIAGE", f"{finding.finding_id}: model judged NOT actionable, but {override_why} — "
+                           f"sending to human review with autonomous execution disabled")
             await tenant_audit.record(AuditRecord(
                 finding_id=finding.finding_id, stage="triage_override",
                 payload={
                     "model_verdict": "not_actionable",
                     "severity": verdict.severity,
                     "override_floor": floor,
+                    "cause": "severity_floor" if above_floor else "contested_by_structured_fields",
+                    "contested": verdict.contested,
                     "effect": "forced to human approval; autonomous execution disabled",
                 },
             ))
@@ -385,11 +400,9 @@ class Orchestrator:
                 decision = decision.model_copy(update={
                     "disposition": "requires_approval",
                     "reason": (
-                        f"triage model judged this finding NOT actionable, but its "
-                        f"severity {verdict.severity:.1f} is at or above the override "
-                        f"floor {self._settings.triage_override_floor:.1f}, so a human "
-                        f"decides and autonomous execution is disabled. Policy: "
-                        f"{decision.reason}"
+                        f"triage model judged this finding NOT actionable, but "
+                        f"{override_why}, so a human decides and autonomous "
+                        f"execution is disabled. Policy: {decision.reason}"
                     ),
                 })
             await tenant_audit.record(AuditRecord(
