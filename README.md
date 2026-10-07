@@ -77,6 +77,21 @@ hard part. Kronagent's answer is **earn-trust, graduated autonomy**:
   Targets always come from the normalized finding data, never from a model —
   so a prompt-injection payload in telemetry cannot redirect an action onto
   an attacker-chosen resource.
+- **Injected text can't talk a finding out of sight.** A finding's title and
+  description can carry text chosen by whoever caused the event, and a model
+  that reads "this is the scheduled penetration test" tends to believe it. We
+  measured that: with 12 payloads from the four categories in *Poisoning the
+  Watchtower* (arXiv 2605.24421), the triage model was talked out of a real
+  attack in 5 of 12 trials (`python run_injection_eval.py --live`). Two
+  changes answer it. The prompt now marks detector text as unverified data
+  that cannot establish authorisation; on the same trials, and on the same
+  attacks re-run at mid severity, the model was then fooled in 0 of 24. And a
+  "not actionable" verdict is rechecked with the free text removed: if the
+  structured fields alone read as a threat, the finding goes to a person at
+  any severity. Text can lower a verdict to "ask a person", never to "drop".
+  These are small samples on one model, and the recheck has yet to fire against a
+  live model, because the prompt change held every trial. It is the
+  structural backstop for the day a payload gets through.
 - **Nothing is invisible.** Every decision — triage, policy, containment,
   approval, governance, forensics — is one entry in an append-only,
   SHA-256-chained audit log. Editing a past record breaks verification of

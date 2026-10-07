@@ -1010,3 +1010,63 @@ async def test_a_failing_enrichment_agent_cancels_its_sibling(settings, capsys) 
     assert "RuntimeError: intel agent exploded" in out
     assert "ExceptionGroup" not in out
     assert approvals.list(status="pending") == []
+
+
+# --------------------------------------------------------------------------- #
+# Contested dismissals
+#
+# The floor only protects high-severity findings. Below it, a model that read
+# "this is the approved penetration test" in a description dropped the finding.
+# Triage now marks a dismissal contested when the structured fields alone read
+# as a threat, and a contested finding reaches a person at any severity.
+# --------------------------------------------------------------------------- #
+
+async def test_a_contested_dismissal_below_the_floor_still_reaches_a_person(settings) -> None:
+    settings = _floor_settings(settings)
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+    verdict = _verdict("f-1", actionable=False, severity=5.0).model_copy(update={"contested": True})
+    approvals = ApprovalStore(settings.approval_store_path)
+    orch, _ = _orchestrator(settings, FakeTriageEngine(verdict, candidates=[candidate]),
+                            FakePolicyEngine("auto_execute"), approvals=approvals)
+    item, _ = _queued(_finding(finding_id="f-1", severity=5.0))
+
+    await _drain(orch, [item])
+
+    pending = approvals.list(status="pending")
+    assert len(pending) == 1, "a finding the text talked the model out of was dropped"
+    assert "free text is what changed the verdict" in pending[0].policy_reason
+    records = _audit_records(settings)
+    # Policy said auto-execute; a contested finding still waits for a person.
+    assert all(r["payload"]["executed"] is False for r in records if r["stage"] == "containment")
+    (override,) = [r for r in records if r["stage"] == "triage_override"]
+    assert override["payload"]["cause"] == "contested_by_structured_fields"
+
+
+async def test_an_uncontested_dismissal_below_the_floor_is_still_noise(settings) -> None:
+    settings = _floor_settings(settings)
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+    approvals = ApprovalStore(settings.approval_store_path)
+    orch, _ = _orchestrator(settings, FakeTriageEngine(_verdict("f-1", actionable=False, severity=5.0),
+                                                       candidates=[candidate]),
+                            FakePolicyEngine("requires_approval"), approvals=approvals)
+    item, _ = _queued(_finding(finding_id="f-1", severity=5.0))
+
+    await _drain(orch, [item])
+
+    assert approvals.list(status="pending") == []
+    assert not [r for r in _audit_records(settings) if r["stage"] == "triage_override"]
+
+
+async def test_the_floor_is_named_as_the_cause_when_it_is_the_cause(settings) -> None:
+    settings = _floor_settings(settings)
+    candidate = _action("kubernetes", ActionClass.ISOLATE_POD, "pod-1")
+    orch, _ = _orchestrator(settings, FakeTriageEngine(_verdict("f-1", actionable=False, severity=8.0),
+                                                       candidates=[candidate]),
+                            FakePolicyEngine("requires_approval"),
+                            approvals=ApprovalStore(settings.approval_store_path))
+    item, _ = _queued(_finding(finding_id="f-1", severity=8.0))
+
+    await _drain(orch, [item])
+
+    (override,) = [r for r in _audit_records(settings) if r["stage"] == "triage_override"]
+    assert override["payload"]["cause"] == "severity_floor"

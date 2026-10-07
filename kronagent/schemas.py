@@ -91,6 +91,10 @@ class TriageVerdict(BaseModel):
     severity: float
     justification: str
     correlated_signals: list[str] = Field(default_factory=list)
+    # True when the model said "not actionable" after reading the finding's free
+    # text, but judged the structured fields alone to be a threat: the text is
+    # what talked it out. A contested finding always goes to a person.
+    contested: bool = False
     signature: Optional[str] = None
 
     def compute_signature_payload(self) -> bytes:
@@ -104,6 +108,10 @@ class TriageVerdict(BaseModel):
             "justification": self.justification,
             "correlated_signals": self.correlated_signals,
         }
+        # Signed when set, and absent otherwise so verdicts signed before the
+        # field existed still verify.
+        if self.contested:
+            payload_dict["contested"] = True
         return json.dumps(payload_dict, sort_keys=True).encode("utf-8")
 
     def with_signature(self, signer: "Signer") -> "TriageVerdict":

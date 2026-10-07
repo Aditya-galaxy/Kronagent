@@ -296,7 +296,8 @@ async def evaluate_pipeline(dataset_path: str, use_live: bool, allowlist_classes
         
     from kronagent.crypto import get_signer
     signer = get_signer(settings)
-    triage = TriageEngine(llm, signer)
+    triage = TriageEngine(llm, signer, recheck_band=(settings.min_severity_for_containment,
+                                                  settings.triage_override_floor))
     threat_intel = ThreatIntelAgent(llm)
     correlation = CorrelationAgent(llm)
     commander = IncidentCommanderAgent(llm)

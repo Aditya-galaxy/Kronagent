@@ -54,3 +54,6 @@ dist/
 # Demo temp files
 .demo_tmp/
 
+
+# Injection red-team answers from the live model (run_injection_eval.py --live)
+kronagent_injection_cache.json
