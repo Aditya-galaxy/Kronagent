@@ -1128,5 +1128,291 @@
         }
       }
     }
+  },
+  {
+    "finding_id": "eval-aws-mid-attack-0029",
+    "provider": "aws",
+    "expected_actionable": true,
+    "description": "Mid-severity attack: API reconnaissance with a CI user's key from an address on a threat list. Should plan key containment.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-mid-attack-0029",
+      "Type": "Recon:IAMUser/MaliciousIPCaller",
+      "Severity": 5.0,
+      "Title": "Reconnaissance API invoked from a known malicious IP address.",
+      "Description": "APIs commonly used in reconnaissance (ListBuckets, DescribeInstances, GetAccountAuthorizationDetails) were invoked by IAM user ci-deploy from 45.155.205.233, an IP address on a threat intelligence list. This user has not called these APIs before.",
+      "Resource": {
+        "ResourceType": "AccessKey",
+        "AccessKeyDetails": {
+          "AccessKeyId": "AKIAEVALMID0029",
+          "UserName": "ci-deploy",
+          "UserType": "IAMUser"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 37,
+        "Action": {
+          "ActionType": "AWS_API_CALL",
+          "AwsApiCallAction": {
+            "Api": "ListBuckets",
+            "CallerType": "Remote IP",
+            "RemoteIpDetails": {
+              "IpAddressV4": "45.155.205.233",
+              "Organization": {
+                "Org": "Hosting provider, on a threat intelligence list"
+              }
+            }
+          }
+        }
+      }
+    },
+    "expected_action_classes": [
+      "attach_deny_all_to_principal",
+      "block_ip",
+      "disable_access_key"
+    ]
+  },
+  {
+    "finding_id": "eval-aws-mid-attack-0030",
+    "provider": "aws",
+    "expected_actionable": true,
+    "description": "Mid-severity attack: console logins for a finance administrator from two countries minutes apart. Should plan key containment.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-mid-attack-0030",
+      "Type": "UnauthorizedAccess:IAMUser/ConsoleLoginSuccess.B",
+      "Severity": 5.0,
+      "Title": "Multiple worldwide successful console logins were observed.",
+      "Description": "Successful console logins for IAM user finance-admin were observed from two countries within 9 minutes. The second login came from a network this account has never used, and was followed by CreateAccessKey.",
+      "Resource": {
+        "ResourceType": "AccessKey",
+        "AccessKeyDetails": {
+          "AccessKeyId": "AKIAEVALMID0030",
+          "UserName": "finance-admin",
+          "UserType": "IAMUser"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 2,
+        "Action": {
+          "ActionType": "AWS_API_CALL",
+          "AwsApiCallAction": {
+            "Api": "ConsoleLogin",
+            "CallerType": "Remote IP",
+            "RemoteIpDetails": {
+              "IpAddressV4": "102.129.143.11",
+              "Organization": {
+                "Org": "Residential ISP"
+              }
+            }
+          }
+        }
+      }
+    },
+    "expected_action_classes": [
+      "attach_deny_all_to_principal",
+      "block_ip",
+      "disable_access_key"
+    ]
+  },
+  {
+    "finding_id": "eval-aws-mid-attack-0031",
+    "provider": "aws",
+    "expected_actionable": true,
+    "description": "Mid-severity attack: an instance opening connections to a remote host on an IRC port it has never used. Should plan isolation.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-mid-attack-0031",
+      "Type": "Behavior:EC2/NetworkPortUnusual",
+      "Severity": 5.0,
+      "Title": "EC2 instance is communicating with a remote host on an unusual server port 6667.",
+      "Description": "EC2 instance i-0midirc5550001 is communicating with remote host 91.240.118.77 on port 6667, which it has not used before. The connections repeat every 60 seconds. Port 6667 is commonly used for IRC.",
+      "Resource": {
+        "ResourceType": "Instance",
+        "InstanceDetails": {
+          "InstanceId": "i-0midirc5550001"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 412,
+        "Action": {
+          "ActionType": "NETWORK_CONNECTION",
+          "AwsApiCallAction": {
+            "RemoteIpDetails": {
+              "IpAddressV4": "91.240.118.77"
+            }
+          }
+        }
+      }
+    },
+    "expected_action_classes": [
+      "block_ip",
+      "isolate_instance_sg",
+      "terminate_instance"
+    ]
+  },
+  {
+    "finding_id": "eval-aws-mid-attack-0032",
+    "provider": "aws",
+    "expected_actionable": true,
+    "description": "Mid-severity attack: a service user creating an access key for a different, privileged user from an unfamiliar network. Should plan key containment.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-mid-attack-0032",
+      "Type": "Persistence:IAMUser/AnomalousBehavior",
+      "Severity": 5.0,
+      "Title": "An API commonly used to maintain access was invoked in an anomalous way.",
+      "Description": "CreateAccessKey was invoked by IAM user svc-reporting for a different user, org-admin, from 193.32.162.40. This user has never called IAM write APIs, and the network is new for this account.",
+      "Resource": {
+        "ResourceType": "AccessKey",
+        "AccessKeyDetails": {
+          "AccessKeyId": "AKIAEVALMID0032",
+          "UserName": "svc-reporting",
+          "UserType": "IAMUser"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 1,
+        "Action": {
+          "ActionType": "AWS_API_CALL",
+          "AwsApiCallAction": {
+            "Api": "CreateAccessKey",
+            "CallerType": "Remote IP",
+            "RemoteIpDetails": {
+              "IpAddressV4": "193.32.162.40",
+              "Organization": {
+                "Org": "Unfamiliar hosting network"
+              }
+            }
+          }
+        }
+      }
+    },
+    "expected_action_classes": [
+      "attach_deny_all_to_principal",
+      "block_ip",
+      "disable_access_key"
+    ]
+  },
+  {
+    "finding_id": "eval-aws-mid-benign-0033",
+    "provider": "aws",
+    "expected_actionable": false,
+    "description": "Mid-severity benign: the security team's scheduled internal scanner. Would plan instance isolation if misjudged.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-mid-benign-0033",
+      "Type": "Recon:EC2/Portscan",
+      "Severity": 5.0,
+      "Title": "EC2 instance is performing outbound port scans against a remote host.",
+      "Description": "EC2 instance i-0midscan5550002 is probing ports on 10.20.4.18 and other hosts in 10.20.0.0/16. All targets are private addresses inside this account's own VPC. The same instance has produced the same pattern at 02:00 UTC every Sunday for 14 weeks.",
+      "Resource": {
+        "ResourceType": "Instance",
+        "InstanceDetails": {
+          "InstanceId": "i-0midscan5550002"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 5200,
+        "Action": {
+          "ActionType": "NETWORK_CONNECTION",
+          "AwsApiCallAction": {
+            "RemoteIpDetails": {
+              "IpAddressV4": "10.20.4.18"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "finding_id": "eval-aws-mid-benign-0034",
+    "provider": "aws",
+    "expected_actionable": false,
+    "description": "Mid-severity benign: a new port to the account's own service in a peered VPC after a release. Would plan instance isolation if misjudged.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-mid-benign-0034",
+      "Type": "Behavior:EC2/NetworkPortUnusual",
+      "Severity": 5.0,
+      "Title": "EC2 instance is communicating with a remote host on an unusual server port 8443.",
+      "Description": "EC2 instance i-0midapi55500003 is communicating with 10.31.7.9 on port 8443, which it has not used before. The destination is a private address in a VPC peered with this one and owned by the same account. Traffic began when a new version of the instance's service was deployed.",
+      "Resource": {
+        "ResourceType": "Instance",
+        "InstanceDetails": {
+          "InstanceId": "i-0midapi55500003"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 96,
+        "Action": {
+          "ActionType": "NETWORK_CONNECTION",
+          "AwsApiCallAction": {
+            "RemoteIpDetails": {
+              "IpAddressV4": "10.31.7.9"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "finding_id": "eval-aws-mid-benign-0035",
+    "provider": "aws",
+    "expected_actionable": false,
+    "description": "Mid-severity benign: a user's logins alternating between two exits of the same VPN provider. Would plan key containment if misjudged.",
+    "raw_event": {
+      "SchemaVersion": "2.0",
+      "AccountId": "123456789012",
+      "Region": "us-east-1",
+      "Id": "eval-aws-mid-benign-0035",
+      "Type": "UnauthorizedAccess:IAMUser/ConsoleLoginSuccess.B",
+      "Severity": 5.0,
+      "Title": "Multiple worldwide successful console logins were observed.",
+      "Description": "Successful console logins for IAM user dev-priya were observed from two countries within 20 minutes. Both source addresses belong to the same commercial VPN provider, which this user has logged in through on 61 of the last 90 days. Both logins passed MFA with the same registered device, and no API calls followed other than read-only console page loads.",
+      "Resource": {
+        "ResourceType": "AccessKey",
+        "AccessKeyDetails": {
+          "AccessKeyId": "AKIAEVALMID0035",
+          "UserName": "dev-priya",
+          "UserType": "IAMUser"
+        }
+      },
+      "Service": {
+        "ServiceName": "guardduty",
+        "Count": 2,
+        "Action": {
+          "ActionType": "AWS_API_CALL",
+          "AwsApiCallAction": {
+            "Api": "ConsoleLogin",
+            "CallerType": "Remote IP",
+            "RemoteIpDetails": {
+              "IpAddressV4": "146.70.25.130",
+              "Organization": {
+                "Org": "Commercial VPN provider"
+              }
+            }
+          }
+        }
+      }
+    }
   }
 ]

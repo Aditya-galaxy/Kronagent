@@ -42,6 +42,7 @@ exists so a model can be shown an incident without being handed the estate.
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import re
 from typing import Optional
@@ -201,6 +202,19 @@ def sanitize_text(text: str, max_length: int = 500) -> str:
         text = re.sub(kw_pattern, "[REDACTED_INJECTION_PAYLOAD]", text)
 
     return text
+
+
+def opaque_ref(finding_id: str) -> str:
+    """A reference to a finding that says nothing about it.
+
+    A finding's id is a string the detector chose. A model that reads it reads
+    whatever it carries: an on-premises detector can put any text there, and an
+    evaluation corpus whose ids say "attack" or "benign" hands the model its
+    answer. Triage needs to tell one finding from another in a prompt, not to
+    read the id, so it gets a short digest. The real id stays in the verdict,
+    which code fills in, never the model.
+    """
+    return "F-" + hashlib.sha256(finding_id.encode("utf-8")).hexdigest()[:12]
 
 
 def sanitize_ip(ip_str: Optional[str]) -> Optional[str]:

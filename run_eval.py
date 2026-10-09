@@ -37,6 +37,7 @@ from kronagent.intel import ThreatIntelAgent
 from kronagent.orchestrator import Orchestrator
 from kronagent.policy import PolicyEngine
 from kronagent.providers import NORMALIZERS, build_containment_adapters
+from kronagent.sanitization import opaque_ref
 from kronagent.schemas import ActionClass, AuditRecord
 from kronagent.triage import TriageEngine
 
@@ -135,7 +136,8 @@ class MockGeminiClient:
     def _find_matching_case(self, prompt: str) -> dict:
         for item in self.dataset:
             fid = item["finding_id"]
-            if fid in prompt:
+            # Triage prompts carry an opaque reference, not the id itself.
+            if fid in prompt or opaque_ref(fid) in prompt:
                 return item
             # Support matching by fields in the raw event if ID is not direct
             raw = item["raw_event"]

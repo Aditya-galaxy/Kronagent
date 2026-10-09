@@ -145,7 +145,8 @@ def outcome(result: Result, override_floor: float) -> Optional[str]:
     return "rescued" if result.severity >= override_floor or result.contested else "dismissed"
 
 
-def plan_trials(case_ids: Iterable[str], budget: Optional[int] = None, seed: int = 0) -> list[Trial]:
+def plan_trials(case_ids: Iterable[str], budget: Optional[int] = None, seed: int = 0,
+                channels: tuple[str, ...] = CHANNELS) -> list[Trial]:
     """Every (case, payload, channel), in an order that keeps any prefix
     balanced across categories and channels, so a small budget still samples
     all of them. Deterministic for a seed."""
@@ -153,12 +154,12 @@ def plan_trials(case_ids: Iterable[str], budget: Optional[int] = None, seed: int
     cases = sorted(case_ids)
     by_cell: dict[tuple[str, str], list[Trial]] = {}
     for payload in PAYLOADS:
-        for channel in CHANNELS:
+        for channel in channels:
             cell = by_cell.setdefault((payload.category, channel), [])
             cell.extend(Trial(c, payload, channel) for c in cases)
     for cell in by_cell.values():
         rng.shuffle(cell)
-    cells = [by_cell[(cat, ch)] for cat in CATEGORIES for ch in CHANNELS]
+    cells = [by_cell[(cat, ch)] for cat in CATEGORIES for ch in channels]
     ordered: list[Trial] = []
     while any(cells):
         for cell in cells:

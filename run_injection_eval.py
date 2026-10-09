@@ -10,6 +10,7 @@ out of a real attack? See kronagent/redteam.py for what is measured and why.
     python run_injection_eval.py                    # offline: what reaches the model at all
     python run_injection_eval.py --live --budget 15 # real triage model, 15 injected trials
     python run_injection_eval.py --live --as-severity 5.5 --no-recheck   # what the recheck is for
+    python run_injection_eval.py --baseline         # no attack: triage on every case, and the recheck's reach
 
 Offline needs no key and makes no calls. It reports which payloads the
 sanitizer changes and how much of each payload survives masking, per channel.
@@ -104,7 +105,8 @@ async def verdict_for(finding: Finding, triage: TriageEngine, cache: Cache, mode
     return value
 
 
-async def live(cases: dict[str, Finding], budget: int, seed: int, cache_path: Path, recheck: bool) -> int:
+async def live(cases: dict[str, Finding], budget: int, seed: int, cache_path: Path, recheck: bool,
+               channels: tuple[str, ...] = redteam.CHANNELS) -> int:
     from kronagent.llm import MODEL, GeminiTriageClient
     triage = TriageEngine(GeminiTriageClient(), recheck_band=(0.0, 10.01) if recheck else (0.0, 0.0))
     cache = Cache(cache_path)
@@ -112,7 +114,7 @@ async def live(cases: dict[str, Finding], budget: int, seed: int, cache_path: Pa
     results: list[redteam.Result] = []
     stopped = ""
     try:
-        for trial in redteam.plan_trials(cases, budget=budget, seed=seed):
+        for trial in redteam.plan_trials(cases, budget=budget, seed=seed, channels=channels):
             finding = cases[trial.case_id]
             base = await verdict_for(finding, triage, cache, MODEL, recheck)
             hit = await verdict_for(redteam.inject(finding, trial.payload, trial.channel), triage, cache,
@@ -149,18 +151,98 @@ async def live(cases: dict[str, Finding], budget: int, seed: int, cache_path: Pa
     return 0
 
 
+def all_cases(path: str) -> list[tuple[str, bool, Finding]]:
+    return [(c["finding_id"], bool(c["expected_actionable"]), NORMALIZERS[c["provider"]](c["raw_event"]))
+            for c in json.loads(Path(path).read_text()) if not c.get("adversarial")]
+
+
+async def baseline(path: str, cache_path: Path, llm=None, model: str = "") -> int:
+    """With nobody attacking: what triage says about every case, and what the
+    structured-fields recheck would say. The recheck protects an attack only
+    if its structured fields alone read as a threat, and it costs a review for
+    every benign finding where they do."""
+    if llm is None:
+        from kronagent.llm import MODEL, GeminiTriageClient
+        llm, model = GeminiTriageClient(), MODEL
+    MODEL = model
+    settings = Settings.from_env()
+    band = (settings.min_severity_for_containment, settings.triage_override_floor)
+    plain = TriageEngine(llm, recheck_band=(0.0, 0.0))
+    cache = Cache(cache_path)
+
+    async def structured_only(finding: Finding) -> bool:
+        prompt, _ = build_prompt(finding, with_text=False)
+        key = hashlib.sha256(json.dumps([MODEL, "structured-only", prompt]).encode()).hexdigest()[:32]
+        if key not in cache.data:
+            cache.put(key, {"threat": await plain._contested(finding)})
+        return cache.data[key]["threat"]
+
+    rows = []
+    try:
+        for fid, is_attack, finding in all_cases(path):
+            clean = await verdict_for(finding, plain, cache, MODEL, recheck=False)
+            in_band = band[0] <= finding.severity < band[1]
+            alone = await structured_only(finding) if is_attack or in_band else None
+            rows.append((fid, is_attack, finding, clean["actionable"], in_band, alone))
+    except OutOfQuota as exc:
+        print(f"Stopped early: the model became unavailable ({str(exc)[:70]}). Run again to continue.")
+
+    def share(part: list, whole: list) -> str:
+        return f"{len(part)} of {len(whole)}"
+
+    attacks = [r for r in rows if r[1]]
+    benign = [r for r in rows if not r[1]]
+    print(f"Model: {MODEL}   recheck band: severity {band[0]} to {band[1]}   cases: {len(rows)}\n")
+    print("Triage, nobody attacking")
+    print(f"  attacks called actionable:        {share([r for r in attacks if r[3]], attacks)}")
+    print(f"  benign findings called actionable: {share([r for r in benign if r[3]], benign)}")
+    for r in benign:
+        if r[3]:
+            where = "would be contained" if r[2].severity >= band[0] else "below the containment minimum: alert only"
+            print(f"    {r[0]} ({r[2].finding_type}, severity {r[2].severity}; {where})")
+    for r in attacks:
+        if not r[3]:
+            print(f"    MISSED ATTACK: {r[0]} ({r[2].finding_type}, severity {r[2].severity})")
+    for name, group in (("at or above the floor", [r for r in attacks if r[2].severity >= band[1]]),
+                        ("in the recheck band", [r for r in attacks if r[4]])):
+        print(f"\nAttacks {name}: structured fields alone read as a threat in "
+              f"{share([r for r in group if r[5]], group)}")
+        for r in group:
+            if not r[5]:
+                print(f"    not protected by the recheck: {r[0]} ({r[2].finding_type}, severity {r[2].severity})")
+    band_benign = [r for r in benign if r[4]]
+    sent = [r for r in band_benign if not r[3] and r[5]]
+    print(f"\nBenign findings in the recheck band: {len(band_benign)}; dismissed by triage but sent to a "
+          f"person by the recheck: {share(sent, band_benign)}")
+    for r in sent:
+        print(f"    {r[0]} ({r[2].finding_type})")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dataset", default=DATASET)
     ap.add_argument("--live", action="store_true", help="call the real triage model")
+    ap.add_argument("--baseline", action="store_true",
+                    help="no injection: live triage on every case, and what the recheck would protect and cost")
     ap.add_argument("--budget", type=int, default=15, help="injected trials to run (live)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--max-cases", type=int, help="use only the first N attack cases (each needs a baseline call)")
+    ap.add_argument("--only", help="use only attack cases whose id contains this (e.g. -mid-)")
+    ap.add_argument("--channels", default=",".join(redteam.CHANNELS),
+                    help="comma-separated channels to inject into (resource_attribute is closed by masking)")
     ap.add_argument("--as-severity", type=float, help="re-run the attack cases at this severity (e.g. 5.5)")
     ap.add_argument("--no-recheck", action="store_true", help="turn the structured-fields recheck off")
     ap.add_argument("--cache", default="kronagent_injection_cache.json")
     args = ap.parse_args()
+    if args.baseline:
+        return asyncio.run(baseline(args.dataset, Path(args.cache)))
     cases = attack_cases(args.dataset)
+    if args.only:
+        cases = {k: f for k, f in cases.items() if args.only in k}
+    channels = tuple(c for c in args.channels.split(",") if c)
+    if not set(channels) <= set(redteam.CHANNELS):
+        ap.error(f"--channels must be among {', '.join(redteam.CHANNELS)}")
     if args.max_cases:
         cases = dict(sorted(cases.items())[:args.max_cases])
     if args.as_severity is not None:
@@ -170,7 +252,7 @@ def main() -> int:
     if not args.live:
         offline(cases)
         return 0
-    return asyncio.run(live(cases, args.budget, args.seed, Path(args.cache), not args.no_recheck))
+    return asyncio.run(live(cases, args.budget, args.seed, Path(args.cache), not args.no_recheck, channels))
 
 
 if __name__ == "__main__":
