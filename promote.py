@@ -68,10 +68,12 @@ from kronagent.audit import AuditLog
 from kronagent.classification import providers_for
 from kronagent.config import Settings
 from kronagent.connect import BINDABLE_PROVIDERS, tenant_environment
+from kronagent.evidence import ActionEvidence, build_evidence, render_text as render_evidence
 from kronagent.identity import (
     DEFAULT_TENANT, AuthContext, AuthorizationError, Permission, owner_vacancy_checker,
     resolve_actor,
 )
+from kronagent.outcomes import OutcomeStore
 from kronagent.policy import PolicyEngine
 from kronagent.schemas import ActionClass, AuditRecord
 
@@ -289,8 +291,15 @@ def cmd_review(store: AllowlistStore, audit: AuditLog, settings: Settings,
     now = datetime.now().astimezone()
 
     flagged: dict[str, list[str]] = {}
+    # What shadow mode shows about each class today, next to what it showed
+    # when the entry was promoted. A renewal is a fresh decision; this is what
+    # there is to decide it on.
+    evidence_now = {e.action_class: _evidence(settings, audit, e.action_class, e.provider_scope)
+                    for e in entries}
     for e in entries:
         reasons = []
+        if evidence_now[e.action_class].meets_bar is False and not e.is_expired(now):
+            reasons.append("evidence below the bar")
         if not e.is_expired(now):
             if e.is_suspended:
                 reasons.append("suspended")
@@ -350,6 +359,16 @@ def cmd_review(store: AllowlistStore, audit: AuditLog, settings: Settings,
         print(f"    reason       {e.reason}")
         print(f"    expires      {_expiry_phrase(e, now)}")
         print(f"    last fired   {_fired_phrase(e, now)}")
+        then = e.evidence
+        print("    evidence     at promotion: " + (
+            f"{then['unwarranted']} unwarranted of {then['scored']} scored, error below "
+            f"{then['error_upper_bound']:.1%}" if then else "none recorded (promoted before evidence existed)")
+            + (f" — OVERRIDDEN: {e.evidence_override}" if e.evidence_override else ""))
+        cur = evidence_now[e.action_class]
+        print(f"                 today: {cur.unwarranted} unwarranted of {cur.scored} scored, error "
+              f"below {cur.error_upper_bound:.1%}"
+              + ("" if cur.max_error is None else
+                 f" (bar {cur.max_error:.1%}: {'met' if cur.meets_bar else 'NOT MET'})"))
         for flag in _standing_flags(e, owner_check, now):
             print(f"    STANDING     {flag}")
         if reasons:
@@ -403,12 +422,51 @@ def cmd_review(store: AllowlistStore, audit: AuditLog, settings: Settings,
     return 3 if (flagged and args.strict) else 0
 
 
+def _evidence(settings: Settings, audit: AuditLog, action_class: str,
+              providers: Optional[list[str]], since: Optional[str] = None) -> ActionEvidence:
+    """What this tenant's shadow-mode record shows about an action class."""
+    from kronagent.orchestrator import get_tenant_path
+    from kronagent.shadow import calls_from_audit
+
+    outcomes = OutcomeStore(get_tenant_path(settings.outcome_store_path, DEFAULT_TENANT))
+    return build_evidence(calls_from_audit(audit.records()), outcomes.list(), action_class,
+                          providers=providers, max_error=settings.promotion_max_error, since=since)
+
+
+def cmd_evidence(audit: AuditLog, settings: Settings, args: argparse.Namespace) -> int:
+    ac = _parse_action_class(args.action_class)
+    since = None
+    if args.since:
+        since = (datetime.now().astimezone() - _parse_window(args.since, "--since")).isoformat()
+    ev = _evidence(settings, audit, ac.value, args.providers, since)
+    if args.json:
+        import json
+        print(json.dumps(ev.model_dump(), indent=2))
+    else:
+        print(render_evidence(ev))
+    # Exit 3 when a bar is set and not met, so a script can gate on it.
+    return 3 if ev.meets_bar is False else 0
+
+
 def cmd_add(store: AllowlistStore, audit: AuditLog, settings: Settings,
             actor: AuthContext, args: argparse.Namespace) -> int:
     ac = _parse_action_class(args.action_class)
     expires_in = _parse_window(args.expires_in, "--expires-in") if args.expires_in else None
     policy = PolicyEngine(settings, store)
     renewal = any(e.action_class == ac.value for e in store.list())
+    # The shadow-mode record for exactly what is being promoted: this class, on
+    # the providers this promotion will cover (a renewal keeps its scope).
+    existing = next((e for e in store.list() if e.action_class == ac.value), None)
+    scope = args.providers or (existing.provider_scope if existing else None)
+    evidence = _evidence(settings, audit, ac.value, scope)
+    if evidence.meets_bar is False and not args.override_evidence:
+        print(f"REFUSED: the shadow-mode record doesn't support promoting {ac.value} yet.\n",
+              file=sys.stderr)
+        print(render_evidence(evidence), file=sys.stderr)
+        print("\nRecord more outcomes (outcome.py record), or promote anyway with "
+              "--override-evidence \"why\". The override and its reason are audited.",
+              file=sys.stderr)
+        return 2
     try:
         environment = tenant_environment(settings.connection_store_path, DEFAULT_TENANT)
     except RuntimeError as exc:
@@ -419,7 +477,10 @@ def cmd_add(store: AllowlistStore, audit: AuditLog, settings: Settings,
         entry = asyncio.run(store.add(ac, by=actor.operator_id, reason=args.reason, audit=audit,
                                       actor_fields=actor.audit_fields(), expires_in=expires_in,
                                       owner=args.owner, owner_check=_owner_check(settings),
-                                      providers=args.providers, environment=environment))
+                                      providers=args.providers, environment=environment,
+                                      evidence=evidence.model_dump(),
+                                      evidence_override=(args.override_evidence
+                                                         if evidence.meets_bar is False else None)))
     except OwnerNotInStandingError as exc:
         return _refuse_owner(exc)
     except ProviderScopeError as exc:
@@ -428,6 +489,13 @@ def cmd_add(store: AllowlistStore, audit: AuditLog, settings: Settings,
         return 2
     verb = "Renewed" if renewal else "Promoted"
     print(f"{verb} {entry.action_class} to autonomous execution (by {actor.label}).")
+    print(f"  Evidence: {evidence.statement()}")
+    if entry.evidence_override:
+        print(f"  ⚠ Promoted WITHOUT meeting the bar of {evidence.max_error:.1%}. Recorded reason: "
+              f"{entry.evidence_override}")
+    elif evidence.max_error is None and evidence.scored == 0:
+        print("            (No bar is set, so this is shown and recorded, not enforced. Set "
+              "KRONAGENT_PROMOTION_MAX_ERROR to require it.)")
     print(f"  Owner: {entry.owner} — the one asked to renew it, and the one who says yes again.")
     print(f"  Covers: {', '.join(entry.provider_scope or [])} — the gate refuses it on any other "
           f"provider.")
@@ -576,6 +644,20 @@ def main() -> int:
                             "a class more than one provider can carry out (e.g. block_ip). On a "
                             "renewal, defaults to the entry's existing scope.")
 
+    p_add.add_argument("--override-evidence", metavar="REASON",
+                       help="promote although the shadow-mode record doesn't meet "
+                            "KRONAGENT_PROMOTION_MAX_ERROR. The reason is stored on the entry and "
+                            "in the audit log.")
+
+    p_ev = sub.add_parser(
+        "evidence", help="what shadow mode shows about an action class: how often it would have "
+                         "been unwarranted, with a confidence bound and every loss listed")
+    p_ev.add_argument("action_class")
+    p_ev.add_argument("--provider", dest="providers", action="append", metavar="PROVIDER",
+                      help="count only plans on this provider; repeat for several")
+    p_ev.add_argument("--since", metavar="DURATION", help="count only findings this recent, e.g. 90d")
+    p_ev.add_argument("--json", action="store_true")
+
     p_rm = sub.add_parser("remove", help="demote an action class back to requiring approval")
     p_rm.add_argument("action_class")
     _add_identity(p_rm)
@@ -638,6 +720,8 @@ def main() -> int:
 
     if args.command == "list":
         return cmd_list(store, settings)
+    if args.command == "evidence":
+        return cmd_evidence(audit, settings, args)
     if args.command == "add":
         actor = _resolve(settings, audit, args, Permission.PROMOTE)
         return cmd_add(store, audit, settings, actor, args)

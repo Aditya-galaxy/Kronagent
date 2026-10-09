@@ -66,6 +66,9 @@ class KronagentCall(BaseModel):
     would_contain: bool = False
     would_auto_execute: bool = False
     planned_action_classes: list[str] = Field(default_factory=list)
+    # The same plans with the provider each would run on, for evidence scoped
+    # the way a promotion is scoped: (action_class, provider).
+    planned_actions: list[tuple[str, str]] = Field(default_factory=list)
 
 
 def calls_from_audit(records: Iterable[dict]) -> dict[str, KronagentCall]:
@@ -105,6 +108,8 @@ def calls_from_audit(records: Iterable[dict]) -> dict[str, KronagentCall]:
                 calls[fid].would_contain = True
                 if action.get("action_class"):
                     calls[fid].planned_action_classes.append(str(action["action_class"]))
+                    calls[fid].planned_actions.append(
+                        (str(action["action_class"]), str(action.get("provider") or "")))
             if disposition == "auto_execute":
                 calls[fid].would_auto_execute = True
     return calls

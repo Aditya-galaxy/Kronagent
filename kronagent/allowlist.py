@@ -286,6 +286,12 @@ class AllowlistEntry(BaseModel):
     # providers in scope whose account a connection decides. None on entries
     # written before binding existed; those are not checked, and review says so.
     environment: Optional[dict] = None
+    # What shadow mode showed about this class when it was promoted or last
+    # renewed (evidence.ActionEvidence, as a dict), and the operator's reason if
+    # they promoted without it meeting the bar. None on entries written before
+    # evidence existed. A record of the decision, never read by the gate.
+    evidence: Optional[dict] = None
+    evidence_override: Optional[str] = None
 
     def covers(self, provider: str) -> bool:
         return self.provider_scope is None or provider in self.provider_scope
@@ -475,7 +481,8 @@ class AllowlistStore:
         actor_fields: Optional[dict] = None, expires_in: Optional[timedelta] = None,
         owner: Optional[str] = None, now: Optional[datetime] = None,
         owner_check: Optional[OwnerCheck] = None, providers: Optional[Iterable[str]] = None,
-        environment: Optional[dict] = None,
+        environment: Optional[dict] = None, evidence: Optional[dict] = None,
+        evidence_override: Optional[str] = None,
     ) -> AllowlistEntry:
         """Promote a class, or renew it. A renewal is a fresh decision, so it
         also lifts any suspension — but only onto an owner who is in standing:
@@ -506,6 +513,7 @@ class AllowlistStore:
             provider_scope=scope,
             environment=(None if environment is None else
                          {p: environment[p] for p in scope if p in environment}),
+            evidence=evidence, evidence_override=evidence_override,
         )
         data = self._read_all()
         previous = data.get(action_class.value)
@@ -537,6 +545,7 @@ class AllowlistStore:
                 "provider_scope": scope,
                 "environment": entry.environment,
                 "previous_provider_scope": (previous or {}).get("provider_scope"),
+                "evidence": evidence, "evidence_override": evidence_override,
                 **(actor_fields or {}),
             },
         ))
