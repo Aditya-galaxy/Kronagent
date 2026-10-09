@@ -82,16 +82,31 @@ hard part. Kronagent's answer is **earn-trust, graduated autonomy**:
   that reads "this is the scheduled penetration test" tends to believe it. We
   measured that: with 12 payloads from the four categories in *Poisoning the
   Watchtower* (arXiv 2605.24421), the triage model was talked out of a real
-  attack in 5 of 12 trials (`python run_injection_eval.py --live`). Two
-  changes answer it. The prompt now marks detector text as unverified data
-  that cannot establish authorisation; on the same trials, and on the same
-  attacks re-run at mid severity, the model was then fooled in 0 of 24. And a
-  "not actionable" verdict is rechecked with the free text removed: if the
-  structured fields alone read as a threat, the finding goes to a person at
-  any severity. Text can lower a verdict to "ask a person", never to "drop".
-  These are small samples on one model, and the recheck has yet to fire against a
-  live model, because the prompt change held every trial. It is the
-  structural backstop for the day a payload gets through.
+  attack in 5 of 12 trials (`python run_injection_eval.py --live`). Three
+  changes answer it.
+  - *The prompt marks detector text as unverified data* that cannot establish
+    authorisation. Re-run: fooled in 0 of 12 on the same trials, and 0 of 48
+    on four mid-severity attacks, which is the range where a fooled verdict
+    used to drop the finding.
+  - *A "not actionable" verdict is rechecked with the free text removed.* If
+    the structured fields alone read as a threat, the finding goes to a person
+    at any severity. Text can lower a verdict to "ask a person", never to
+    "drop". Measured with nobody attacking (`--baseline`): the structured
+    fields alone read as a threat for all 14 attacks at or above the floor and
+    3 of the 4 below it, and the recheck sent 1 of 3 benign mid-severity
+    findings to a person. So the recheck is a backstop for findings whose type
+    alone looks like an attack. Where the type is ambiguous, the prompt is the
+    only layer.
+  - *The model no longer reads a finding's id.* An id is detector-chosen text
+    outside the fence. It also spoiled our own first measurement: the
+    evaluation corpus's ids contain the words "attack" and "benign", and the
+    model could read them. The numbers above were taken after the id was
+    replaced by an opaque reference. The earlier published "0 of 24" was not,
+    and should not be relied on.
+
+  What this still does not show: one model, 60 trials (the true rate could be
+  as high as about 6%), a corpus of 41 synthetic cases, and a recheck that has
+  never had to fire against a live model because the prompt held every trial.
 - **Nothing is invisible.** Every decision — triage, policy, containment,
   approval, governance, forensics — is one entry in an append-only,
   SHA-256-chained audit log. Editing a past record breaks verification of

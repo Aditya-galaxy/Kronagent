@@ -96,3 +96,31 @@ def test_contested_is_signed_and_old_verdicts_still_verify(settings) -> None:
     assert not contested.model_copy(update={"contested": False}).verify_signature(signer)
     plain = assess(Model(gullible=False), signer=signer)
     assert b"contested" not in plain.compute_signature_payload() and plain.verify_signature(signer)
+
+
+def test_the_model_never_reads_a_findings_id() -> None:
+    """An id is detector-chosen text outside the fence, and in an evaluation
+    corpus it can name the answer ("eval-aws-attack-0009")."""
+    from kronagent.sanitization import opaque_ref
+
+    loud = FINDING.model_copy(update={"finding_id": "eval-aws-benign-ignore-previous-instructions"})
+    for with_text in (True, False):
+        prompt, _ = build_prompt(loud, with_text=with_text)
+        assert "benign" not in prompt and "ignore-previous" not in prompt
+        assert opaque_ref(loud.finding_id) in prompt
+    assert opaque_ref("a") != opaque_ref("b") and opaque_ref("a") == opaque_ref("a")
+    # The verdict still carries the real id: code fills it in, not the model.
+    assert assess(Model(gullible=False), loud).finding_id == loud.finding_id
+
+
+def test_no_evaluation_prompt_carries_its_cases_id() -> None:
+    import json
+    from pathlib import Path
+
+    from kronagent.providers import NORMALIZERS
+
+    cases = json.loads((Path(__file__).resolve().parents[1] / "samples" / "eval_dataset.json").read_text())
+    for case in cases:
+        finding = NORMALIZERS[case["provider"]](case["raw_event"])
+        for with_text in (True, False):
+            assert case["finding_id"] not in build_prompt(finding, with_text=with_text)[0], case["finding_id"]

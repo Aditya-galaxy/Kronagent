@@ -355,3 +355,19 @@ def test_the_harness_arms_the_trajectory_guard() -> None:
     assert "trajectory=trajectory" in source, (
         "run_eval.py builds a guard but never passes it to the Orchestrator."
     )
+
+
+def test_the_corpus_has_attacks_and_benign_findings_where_a_dismissal_drops_them() -> None:
+    """Between the containment minimum and the override floor, a "not
+    actionable" verdict ends a finding. With no cases there, nothing measured
+    that decision: every attack sat at or above the floor."""
+    from kronagent.config import Settings
+    from kronagent.providers import NORMALIZERS
+
+    settings = Settings()
+    dataset = json.loads((SAMPLES_DIR / "eval_dataset.json").read_text())
+    in_band = [c for c in dataset if not c.get("adversarial")
+               and settings.min_severity_for_containment
+               <= NORMALIZERS[c["provider"]](c["raw_event"]).severity < settings.triage_override_floor]
+    assert sum(c["expected_actionable"] for c in in_band) >= 4
+    assert sum(not c["expected_actionable"] for c in in_band) >= 3

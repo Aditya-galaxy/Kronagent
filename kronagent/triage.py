@@ -120,7 +120,7 @@ def _untagged(text: str) -> str:
 def build_prompt(finding: Finding, *, with_text: bool = True) -> tuple[str, "MaskingContext"]:
     """The triage prompt for a finding, from its masked copy. Without text it
     carries only what the detector's schema fixes: type, severity, resources."""
-    from .sanitization import mask_finding
+    from .sanitization import mask_finding, opaque_ref
     sanitized, mask_ctx = mask_finding(finding)
 
     if with_text:
@@ -140,7 +140,7 @@ def build_prompt(finding: Finding, *, with_text: bool = True) -> tuple[str, "Mas
     prompt = (
         "Review this security finding.\n\n"
         f"Provider: {sanitized.provider}\n"
-        f"Finding ID: {sanitized.finding_id}\n"
+        f"Finding ref: {opaque_ref(finding.finding_id)}\n"
         f"Type: {sanitized.finding_type}\n"
         f"Severity (0-10 normalized): {sanitized.severity} ({sanitized.severity_band})\n"
         f"{text}"
