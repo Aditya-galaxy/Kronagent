@@ -22,6 +22,24 @@ hard part. Kronagent's answer is **earn-trust, graduated autonomy**:
   Every containment action requires human approval until an operator
   explicitly promotes it — and that promotion is itself audited (who, when,
   why).
+- **A promotion rests on a number.** Shadow mode records what Kronagent
+  planned for every finding, and `outcome.py record` stores what the team
+  decided. `promote.py evidence <action_class>` puts them together: of the
+  findings where this action would have run unattended, how many did the team
+  judge benign or choose not to contain? The answer is a bound, not a rate.
+  "With 95% confidence, fewer than 11.1% of unattended `disable_access_key`
+  actions would have been unwarranted (1 of 41 scored findings were)." Twenty
+  clean findings only show the rate is below 14%. It takes 59 to show it is
+  below 5%, and one bad call costs dozens of good ones. Every unwarranted
+  finding is listed; unlabeled and inconclusive ones are left out, never
+  counted as agreement. `promote.py add` prints the evidence and stores it on
+  the entry and in the audit chain, and `promote.py review` shows it then and
+  now. Set `KRONAGENT_PROMOTION_MAX_ERROR` (say `0.05`) and a promotion below
+  the bar is refused unless the operator overrides it with a reason, which is
+  audited. Two limits: an outcome is recorded per finding, not per action, and
+  the bound assumes next month's findings resemble this month's. An attacker
+  can change what arrives, which is why a promotion still has an owner and an
+  expiry.
 - **Trust is re-earned, not inherited.** A promotion can carry a TTL
   (`--expires-in 90d`) and names an **owner** — the person accountable for it
   now, asked to renew it, and reassignable as people change teams (distinct

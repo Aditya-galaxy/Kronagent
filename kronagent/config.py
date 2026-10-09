@@ -96,6 +96,12 @@ class Settings:
     # can never auto-execute. Below it, triage keeps doing its real job — filtering
     # noise before any enrichment spend. 7.0 is the start of the "high" band.
     triage_override_floor: float = 7.0
+    # The most an action class may be wrong and still be promoted, as a share
+    # (0.05 = 5%). None: promotion evidence is shown and recorded, not enforced.
+    # When set, `promote.py add` refuses a class whose shadow-mode record
+    # doesn't bound its error below this, unless the operator overrides it with
+    # a reason, which is audited. See kronagent/evidence.py.
+    promotion_max_error: float | None = None
 
     # --- AWS ---
     aws_region: str = "us-east-1"
@@ -242,6 +248,8 @@ class Settings:
             triage_override_floor=float(
                 os.getenv("KRONAGENT_TRIAGE_OVERRIDE_FLOOR", "7.0")
             ),
+            promotion_max_error=(float(os.environ["KRONAGENT_PROMOTION_MAX_ERROR"])
+                                 if os.getenv("KRONAGENT_PROMOTION_MAX_ERROR") else None),
             aws_region=os.getenv("AWS_REGION", "us-east-1"),
             quarantine_security_group_id=os.getenv("KRONAGENT_QUARANTINE_SG_ID", ""),
             quarantine_nacl_id=os.getenv("KRONAGENT_QUARANTINE_NACL_ID", ""),
@@ -321,6 +329,10 @@ class Settings:
                 f"KRONAGENT_MIN_SEVERITY ({self.min_severity_for_containment}), so it has "
                 f"no effect: findings under the containment threshold are alert-only "
                 f"either way. Set it at or above the containment threshold.")
+        if self.promotion_max_error is not None and not 0.0 < self.promotion_max_error < 1.0:
+            errors.append(
+                f"KRONAGENT_PROMOTION_MAX_ERROR ({self.promotion_max_error}) must be a share "
+                f"strictly between 0 and 1, e.g. 0.05 for 5%.")
         if self.max_workers < 1:
             errors.append(f"KRONAGENT_MAX_WORKERS ({self.max_workers}) must be at least 1.")
         if self.trajectory_window_seconds <= 0:
